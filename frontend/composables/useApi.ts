@@ -10,7 +10,7 @@ export const useApi = () => {
     chat_id?: string
     date_from?: string
     date_to?: string
-  } = ): Promise<MessageListResponse> => {
+  } = {}): Promise<MessageListResponse> => {
     const query = new URLSearchParams()
     if (params.page) query.append('page', params.page.toString())
     if (params.page_size) query.append('page_size', params.page_size.toString())
