@@ -23,7 +23,7 @@ Build a **privacy-first, local-first personal data archive** that gives users co
 - ✅ Basic statistics and analytics
 
 ### Architecture
-- Backend: Python 3.12 + FastAPI + SQLite + aiosqlite
+- Backend: Python 3.11+ + FastAPI + SQLite + aiosqlite
 - Frontend: Nuxt 3 + TypeScript + Tailwind CSS
 - Storage: Local SQLite with FTS5 indexing
 
@@ -34,11 +34,12 @@ Build a **privacy-first, local-first personal data archive** that gives users co
 **Goal:** Add privacy features and AI-powered analysis
 
 ### Privacy Enhancements
-- [ ] Privacy masking for sensitive data
-  - [ ] Phone numbers (Chinese: `1[3-9][0-9]{9}`)
-  - [ ] ID cards (Chinese: `[0-9]{17}[0-9Xx]`)
-  - [ ] Names and addresses
-  - [ ] Configurable masking rules
+- [x] Export-time privacy masking for sensitive data
+  - [x] Phone numbers (Chinese: `1[3-9][0-9]{9}`)
+  - [x] ID cards (Chinese: `[0-9]{17}[0-9Xx]`)
+  - [x] Emails and common local file paths
+  - [x] Configurable custom terms for names, addresses, and other sensitive strings
+  - [ ] Automatic name and address detection
 - [ ] Data anonymization for sharing
   - [ ] Replace real names with pseudonyms
   - [ ] Strip location metadata

@@ -10,6 +10,7 @@ LifeVault is an open-source personal archive tool for WeChat chat history, featu
 - 🔍 **Full-Text Search** - High-performance search powered by SQLite FTS5
 - 📊 **Statistical Analysis** - Message distribution, top chats, timeline analysis
 - 📤 **Multi-Format Export** - JSON, CSV, and more (HTML reports coming soon)
+- 🛡️ **Masked Export** - Mask phone numbers, ID cards, emails, file paths, and custom terms before exporting
 - 🎨 **Modern Interface** - Responsive web UI built with Nuxt 3
 - 🚀 **Lightweight Deployment** - Zero complex configuration, ready out of the box
 
@@ -142,6 +143,11 @@ After starting the backend, visit:
 | `/api/export/report` | GET | Export analysis report |
 | `/api/import` | POST | Import a LifeVault JSON file or WeChat database paths |
 
+Export endpoints support masking query parameters:
+
+- `mask_sensitive=true`: mask phone numbers, ID cards, emails, and common local file paths in exported data
+- `mask_terms=Alice,Beijing`: additionally mask custom names, addresses, or other sensitive terms
+
 ## 🧪 Run Tests
 
 ```bash
@@ -160,7 +166,7 @@ sh scripts/check.sh
 ```
 
 Current coverage:
-- ✅ 33+ test cases
+- ✅ 40+ test cases
 - ✅ API endpoint tests
 - ✅ Database operation tests
 - ✅ Data model validation tests
@@ -211,7 +217,8 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
 - [x] Sample data & test coverage
 
 ### v0.2.0 (Planned)
-- [ ] Privacy masking (phone numbers, IDs, names)
+- [x] Export masking (phone numbers, IDs, emails, custom terms)
+- [ ] Automatic name/address detection
 - [ ] RAG-powered Q&A (LLM-based)
 - [ ] More export formats (HTML reports, Markdown)
 - [ ] Enhanced data visualization

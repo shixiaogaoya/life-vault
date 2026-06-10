@@ -6,6 +6,13 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.db import query_messages
+from app.models.message import UnifiedMessage
+from app.privacy.masking import (
+    PrivacyMaskingOptions,
+    mask_message_dict,
+    masking_summary,
+    parse_custom_terms,
+)
 
 
 router = APIRouter(prefix="/api/export", tags=["export"])
@@ -16,17 +23,12 @@ async def export_csv(
     chat_id: str | None = Query(None),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    mask_sensitive: bool = Query(False),
+    mask_terms: str | None = Query(None),
 ) -> StreamingResponse:
     """导出消息为 CSV 格式"""
-    filters = {
-        key: value
-        for key, value in {
-            "chat_id": chat_id,
-            "date_from": date_from,
-            "date_to": date_to,
-        }.items()
-        if value is not None and value != ""
-    }
+    filters = _build_filters(chat_id, date_from, date_to)
+    masking_options = _build_masking_options(mask_sensitive, mask_terms)
 
     try:
         messages = await query_messages(filters, page=1, page_size=100000)
@@ -53,7 +55,7 @@ async def export_csv(
     )
     writer.writeheader()
     for message in messages:
-        writer.writerow(message.to_dict())
+        writer.writerow(_message_to_export_dict(message, masking_options))
 
     csv_content = output.getvalue()
     output.close()
@@ -62,7 +64,7 @@ async def export_csv(
         iter([csv_content.encode("utf-8-sig")]),
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": f"attachment; filename=messages_{filters.get('chat_id', 'all')}.csv"
+            "Content-Disposition": f"attachment; filename=messages_{_filename_scope(filters, masking_options)}.csv"
         },
     )
 
@@ -72,17 +74,12 @@ async def export_json(
     chat_id: str | None = Query(None),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    mask_sensitive: bool = Query(False),
+    mask_terms: str | None = Query(None),
 ) -> dict[str, Any]:
     """导出消息为 JSON 格式"""
-    filters = {
-        key: value
-        for key, value in {
-            "chat_id": chat_id,
-            "date_from": date_from,
-            "date_to": date_to,
-        }.items()
-        if value is not None and value != ""
-    }
+    filters = _build_filters(chat_id, date_from, date_to)
+    masking_options = _build_masking_options(mask_sensitive, mask_terms)
 
     try:
         messages = await query_messages(filters, page=1, page_size=100000)
@@ -94,7 +91,8 @@ async def export_json(
     return {
         "total": len(messages),
         "filters": filters,
-        "messages": [message.to_dict() for message in messages],
+        "privacy": masking_summary(masking_options),
+        "messages": [_message_to_export_dict(message, masking_options) for message in messages],
     }
 
 
@@ -103,17 +101,12 @@ async def export_report(
     chat_id: str | None = Query(None),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    mask_sensitive: bool = Query(False),
+    mask_terms: str | None = Query(None),
 ) -> dict[str, Any]:
     """导出数据分析报告（JSON 格式，包含统计信息）"""
-    filters = {
-        key: value
-        for key, value in {
-            "chat_id": chat_id,
-            "date_from": date_from,
-            "date_to": date_to,
-        }.items()
-        if value is not None and value != ""
-    }
+    filters = _build_filters(chat_id, date_from, date_to)
+    masking_options = _build_masking_options(mask_sensitive, mask_terms)
 
     try:
         messages = await query_messages(filters, page=1, page_size=100000)
@@ -127,6 +120,7 @@ async def export_report(
     if total_messages == 0:
         return {
             "filters": filters,
+            "privacy": masking_summary(masking_options),
             "summary": {
                 "total_messages": 0,
                 "date_range": {"earliest": None, "latest": None},
@@ -136,19 +130,21 @@ async def export_report(
             "messages": [],
         }
 
+    exported_messages = [_message_to_export_dict(message, masking_options) for message in messages]
+
     # 消息类型分布
     type_distribution: dict[str, int] = {}
     sender_distribution: dict[str, int] = {}
     earliest_timestamp = messages[0].timestamp
     latest_timestamp = messages[0].timestamp
 
-    for msg in messages:
+    for msg, exported in zip(messages, exported_messages):
         # 类型统计
         type_key = _get_type_name(msg.msg_type, msg.sub_type)
         type_distribution[type_key] = type_distribution.get(type_key, 0) + 1
 
         # 发送者统计
-        sender_key = msg.sender_name or msg.sender_id
+        sender_key = str(exported.get("sender_name") or exported.get("sender_id") or "")
         sender_distribution[sender_key] = sender_distribution.get(sender_key, 0) + 1
 
         # 时间范围
@@ -166,6 +162,7 @@ async def export_report(
 
     return {
         "filters": filters,
+        "privacy": masking_summary(masking_options),
         "summary": {
             "total_messages": total_messages,
             "date_range": {
@@ -175,8 +172,43 @@ async def export_report(
             "message_types": type_distribution,
             "top_senders": top_senders,
         },
-        "messages": [message.to_dict() for message in messages],
+        "messages": exported_messages,
     }
+
+
+def _build_filters(
+    chat_id: str | None,
+    date_from: str | None,
+    date_to: str | None,
+) -> dict[str, str]:
+    return {
+        key: value
+        for key, value in {
+            "chat_id": chat_id,
+            "date_from": date_from,
+            "date_to": date_to,
+        }.items()
+        if value is not None and value != ""
+    }
+
+
+def _build_masking_options(mask_sensitive: bool, mask_terms: str | None) -> PrivacyMaskingOptions:
+    return PrivacyMaskingOptions(
+        enabled=mask_sensitive,
+        custom_terms=parse_custom_terms(mask_terms) if mask_sensitive else (),
+    )
+
+
+def _message_to_export_dict(
+    message: UnifiedMessage,
+    masking_options: PrivacyMaskingOptions,
+) -> dict[str, Any]:
+    return mask_message_dict(message.to_dict(), masking_options)
+
+
+def _filename_scope(filters: dict[str, str], masking_options: PrivacyMaskingOptions) -> str:
+    scope = filters.get("chat_id", "all")
+    return f"{scope}_masked" if masking_options.enabled else scope
 
 
 def _get_type_name(msg_type: int, sub_type: int = 0) -> str:

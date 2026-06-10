@@ -68,7 +68,7 @@ async def _load_contacts(contact_db_path: str) -> dict[str, dict[str, str]]:
     contacts: dict[str, dict[str, str]] = {}
 
     async with _connect_readonly(contact_db_path) as contact_db:
-        columns = await _table_columns(contact_db, "Contact")
+        columns = await _contact_table_columns(contact_db)
         if not columns:
             return contacts
 
@@ -111,8 +111,8 @@ async def _load_contacts(contact_db_path: str) -> dict[str, dict[str, str]]:
     return contacts
 
 
-async def _table_columns(db: aiosqlite.Connection, table_name: str) -> list[str]:
-    cursor = await db.execute(f"PRAGMA table_info({table_name})")
+async def _contact_table_columns(db: aiosqlite.Connection) -> list[str]:
+    cursor = await db.execute('PRAGMA table_info("Contact")')
     rows = await cursor.fetchall()
     await cursor.close()
     return [row["name"] for row in rows]

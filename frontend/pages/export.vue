@@ -6,6 +6,8 @@ const exportOptions = ref({
   chat_id: '',
   date_from: '',
   date_to: '',
+  mask_sensitive: false,
+  mask_terms: '',
 })
 
 const exportTask = ref<{
@@ -96,6 +98,25 @@ onBeforeUnmount(() => {
               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
           </div>
+        </div>
+
+        <div class="mb-4 rounded-md border border-gray-200 p-4">
+          <label class="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <input
+              v-model="exportOptions.mask_sensitive"
+              type="checkbox"
+              class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            >
+            导出前脱敏
+          </label>
+
+          <textarea
+            v-model="exportOptions.mask_terms"
+            :disabled="!exportOptions.mask_sensitive"
+            rows="3"
+            placeholder="可选：输入要额外脱敏的人名、地址等，用逗号或换行分隔"
+            class="mt-3 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+          ></textarea>
         </div>
 
         <button
