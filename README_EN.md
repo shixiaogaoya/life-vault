@@ -37,7 +37,7 @@ LifeVault
 ### Tech Stack
 
 **Backend**:
-- Python 3.12+
+- Python 3.11+
 - FastAPI - Modern async web framework
 - SQLite + FTS5 - Lightweight database with full-text search
 - Pydantic - Data validation and serialization
@@ -47,13 +47,12 @@ LifeVault
 - Nuxt 3 - Vue 3 full-stack framework
 - TypeScript - Type safety
 - Tailwind CSS - Utility-first CSS
-- Pinia - State management
 
 ## 🚀 Quick Start
 
 ### Requirements
 
-- Python 3.12 or higher
+- Python 3.11 or higher
 - Node.js 18 or higher
 - 8GB+ RAM (recommended)
 
@@ -84,7 +83,17 @@ npm run dev
 
 Frontend will run on `http://localhost:3000`
 
-### 4. Import data
+### 4. One-command Docker startup (optional)
+
+```bash
+docker compose up --build
+```
+
+- Frontend: `http://localhost:3000`
+- Backend: `http://localhost:8000`
+- Database: stored in the Docker volume `lifevault-data`
+
+### 5. Import data
 
 Try the sample data:
 
@@ -93,7 +102,25 @@ curl -X POST http://localhost:8000/api/import \
   -F "file=@sample_data/demo.json"
 ```
 
-Or upload your data through the "Import Data" feature in the web UI.
+Or upload a LifeVault JSON file through the "Import Data" feature in the web UI.
+
+You can also import the sample dataset directly:
+
+```bash
+python scripts/import_demo_data.py
+```
+
+To import WeChat 4.x SQLite databases, submit database paths to the same endpoint:
+
+```bash
+curl -X POST http://localhost:8000/api/import \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "wechat_4x",
+    "db_path": "C:/path/to/MSG.db",
+    "contact_db_path": "C:/path/to/MicroMsg.db"
+  }'
+```
 
 ## 📖 API Documentation
 
@@ -113,7 +140,7 @@ After starting the backend, visit:
 | `/api/export/json` | GET | Export as JSON |
 | `/api/export/csv` | GET | Export as CSV |
 | `/api/export/report` | GET | Export analysis report |
-| `/api/import` | POST | Import data file |
+| `/api/import` | POST | Import a LifeVault JSON file or WeChat database paths |
 
 ## 🧪 Run Tests
 
@@ -122,12 +149,23 @@ cd backend
 python -m pytest tests/ -v
 ```
 
+Run the full local check:
+
+```bash
+# Windows PowerShell
+.\scripts\check.ps1
+
+# macOS/Linux
+sh scripts/check.sh
+```
+
 Current coverage:
-- ✅ 30+ test cases
+- ✅ 33+ test cases
 - ✅ API endpoint tests
 - ✅ Database operation tests
 - ✅ Data model validation tests
 - ✅ Export functionality tests
+- ✅ Sample data end-to-end check
 
 ## 📊 Data Model
 

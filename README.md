@@ -39,7 +39,7 @@ LifeVault
 ### 技术栈
 
 **后端**:
-- Python 3.12+
+- Python 3.11+
 - FastAPI - 现代化的异步 Web 框架
 - SQLite + FTS5 - 轻量级数据库与全文检索
 - Pydantic - 数据验证与序列化
@@ -49,13 +49,12 @@ LifeVault
 - Nuxt 3 - Vue 3 全栈框架
 - TypeScript - 类型安全
 - Tailwind CSS - 原子化 CSS
-- Pinia - 状态管理
 
 ## 🚀 快速开始
 
 ### 环境要求
 
-- Python 3.12 或更高版本
+- Python 3.11 或更高版本
 - Node.js 18 或更高版本
 - 8GB+ 内存（推荐）
 
@@ -86,7 +85,17 @@ npm run dev
 
 前端服务将在 `http://localhost:3000` 启动
 
-### 4. 导入数据
+### 4. 一键 Docker 启动（可选）
+
+```bash
+docker compose up --build
+```
+
+- 前端：`http://localhost:3000`
+- 后端：`http://localhost:8000`
+- 数据库：保存在 Docker volume `lifevault-data`
+
+### 5. 导入数据
 
 使用示例数据快速体验：
 
@@ -95,7 +104,25 @@ curl -X POST http://localhost:8000/api/import \
   -F "file=@sample_data/demo.json"
 ```
 
-或通过前端 UI 的"导入数据"功能上传你的数据文件。
+或通过前端 UI 的"导入数据"功能上传 LifeVault JSON 文件。
+
+也可以直接运行脚本导入示例数据：
+
+```bash
+python scripts/import_demo_data.py
+```
+
+如需导入微信 4.x SQLite 数据库，可调用同一接口提交数据库路径：
+
+```bash
+curl -X POST http://localhost:8000/api/import \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "wechat_4x",
+    "db_path": "C:/path/to/MSG.db",
+    "contact_db_path": "C:/path/to/MicroMsg.db"
+  }'
+```
 
 ## 📖 API 文档
 
@@ -115,7 +142,7 @@ curl -X POST http://localhost:8000/api/import \
 | `/api/export/json` | GET | 导出为 JSON 格式 |
 | `/api/export/csv` | GET | 导出为 CSV 格式 |
 | `/api/export/report` | GET | 导出分析报告 |
-| `/api/import` | POST | 导入数据文件 |
+| `/api/import` | POST | 导入 LifeVault JSON 文件或微信数据库路径 |
 
 ## 🧪 运行测试
 
@@ -124,12 +151,23 @@ cd backend
 python -m pytest tests/ -v
 ```
 
+运行本地完整检查：
+
+```bash
+# Windows PowerShell
+.\scripts\check.ps1
+
+# macOS/Linux
+sh scripts/check.sh
+```
+
 当前测试覆盖：
-- ✅ 30+ 个测试用例
+- ✅ 33+ 个测试用例
 - ✅ API 端点测试
 - ✅ 数据库操作测试
 - ✅ 数据模型验证测试
 - ✅ 导出功能测试
+- ✅ 示例数据端到端检查
 
 ## 📊 数据模型
 

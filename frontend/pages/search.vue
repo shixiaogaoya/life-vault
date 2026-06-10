@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import type { UnifiedMessage } from '~/types/message'
+import type { SearchResultItem } from '~/types/message'
 
 const { searchMessages } = useApi()
 
 const query = ref('')
-const results = ref<UnifiedMessage[]>([])
+const results = ref<SearchResultItem[]>([])
 const loading = ref(false)
 const total = ref(0)
 const page = ref(1)
@@ -29,10 +29,29 @@ const search = async () => {
   }
 }
 
-const highlightKeyword = (content: string, keyword: string): string => {
-  if (!keyword) return content
-  const regex = new RegExp(`(${keyword})`, 'gi')
-  return content.replace(regex, '<mark class="bg-yellow-200">$1</mark>')
+const highlightParts = (content: string, keyword: string): Array<{ text: string, hit: boolean }> => {
+  const term = keyword.trim()
+  if (!term) return [{ text: content, hit: false }]
+
+  const lowerContent = content.toLocaleLowerCase()
+  const lowerTerm = term.toLocaleLowerCase()
+  const parts: Array<{ text: string, hit: boolean }> = []
+  let cursor = 0
+
+  while (cursor < content.length) {
+    const index = lowerContent.indexOf(lowerTerm, cursor)
+    if (index < 0) {
+      parts.push({ text: content.slice(cursor), hit: false })
+      break
+    }
+    if (index > cursor) {
+      parts.push({ text: content.slice(cursor, index), hit: false })
+    }
+    parts.push({ text: content.slice(index, index + term.length), hit: true })
+    cursor = index + term.length
+  }
+
+  return parts.length ? parts : [{ text: content, hit: false }]
 }
 
 const formatTime = (timestamp: number): string => {
@@ -82,10 +101,15 @@ const formatTime = (timestamp: number): string => {
           <div class="text-sm text-gray-600 mb-2">
             <span class="text-xs text-gray-400">{{ result.type_name }}</span>
           </div>
-          <div
-            class="snippet text-sm text-gray-800"
-            v-html="highlightKeyword(result.content, query)"
-          ></div>
+          <div class="snippet text-sm text-gray-800">
+            <template
+              v-for="(part, index) in highlightParts(result.content, query)"
+              :key="index"
+            >
+              <mark v-if="part.hit" class="bg-yellow-200">{{ part.text }}</mark>
+              <span v-else>{{ part.text }}</span>
+            </template>
+          </div>
         </div>
 
         <div v-if="loading" class="text-center py-8">

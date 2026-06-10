@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type { UnifiedMessage } from '~/types/message'
+import type { MessageListItem } from '~/types/message'
 
 interface Props {
-  message: UnifiedMessage
+  message: MessageListItem
 }
 
 const props = defineProps<Props>()

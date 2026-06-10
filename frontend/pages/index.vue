@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import type { UnifiedMessage } from '~/types/message'
+import type { MessageListItem } from '~/types/message'
 
 const { getMessages, getStats } = useApi()
 
 const stats = ref<any>(null)
-const messages = ref<UnifiedMessage[]>([])
+const messages = ref<MessageListItem[]>([])
 const page = ref(1)
 const loading = ref(false)
 const hasMore = ref(true)

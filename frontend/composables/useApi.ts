@@ -1,4 +1,4 @@
-import type { MessageListResponse, SearchResponse, StatsResponse } from '~/types/message'
+import type { ImportResponse, MessageListResponse, SearchResponse, StatsResponse } from '~/types/message'
 
 export const useApi = () => {
   const config = useRuntimeConfig()
@@ -44,9 +44,55 @@ export const useApi = () => {
     return response.json()
   }
 
+  const importJsonFile = async (file: File): Promise<ImportResponse> => {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const response = await fetch(`${baseURL}/api/import`, {
+      method: 'POST',
+      body: formData,
+    })
+    if (!response.ok) throw new Error(await response.text() || 'Failed to import file')
+    return response.json()
+  }
+
+  const buildExportUrl = (params: {
+    format: 'json' | 'csv' | 'report'
+    chat_id?: string
+    date_from?: string
+    date_to?: string
+  }): string => {
+    const query = new URLSearchParams()
+    if (params.chat_id) query.append('chat_id', params.chat_id)
+    if (params.date_from) query.append('date_from', params.date_from)
+    if (params.date_to) query.append('date_to', params.date_to)
+    const suffix = query.toString()
+
+    return `${baseURL}/api/export/${params.format}${suffix ? `?${suffix}` : ''}`
+  }
+
+  const exportMessages = async (params: {
+    format: 'json' | 'csv' | 'report'
+    chat_id?: string
+    date_from?: string
+    date_to?: string
+  }): Promise<{ blob: Blob, filename: string }> => {
+    const response = await fetch(buildExportUrl(params))
+    if (!response.ok) throw new Error(await response.text() || 'Failed to export messages')
+
+    const disposition = response.headers.get('content-disposition') || ''
+    const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] || `lifevault-export.${params.format === 'csv' ? 'csv' : 'json'}`
+    return {
+      blob: await response.blob(),
+      filename,
+    }
+  }
+
   return {
     getMessages,
     searchMessages,
     getStats,
+    importJsonFile,
+    exportMessages,
   }
 }

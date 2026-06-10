@@ -1,28 +1,52 @@
 <script setup lang="ts">
+const { exportMessages } = useApi()
+
 const exportOptions = ref({
-  format: 'json',
+  format: 'json' as 'json' | 'csv' | 'report',
   chat_id: '',
   date_from: '',
   date_to: '',
 })
 
-const exportTask = ref<any>(null)
+const exportTask = ref<{
+  status: 'processing' | 'completed' | 'failed'
+  file_url?: string
+  filename?: string
+  error?: string
+} | null>(null)
 const exporting = ref(false)
 
 const startExport = async () => {
   exporting.value = true
   exportTask.value = {
-    export_id: 'mock-export-' + Date.now(),
     status: 'processing',
   }
 
-  // 模拟导出过程
-  setTimeout(() => {
-    exportTask.value.status = 'completed'
-    exportTask.value.file_url = '/exports/mock-export.json'
+  try {
+    const result = await exportMessages(exportOptions.value)
+    if (exportTask.value?.file_url) {
+      URL.revokeObjectURL(exportTask.value.file_url)
+    }
+    exportTask.value = {
+      status: 'completed',
+      file_url: URL.createObjectURL(result.blob),
+      filename: result.filename,
+    }
+  } catch (error) {
+    exportTask.value = {
+      status: 'failed',
+      error: error instanceof Error ? error.message : '导出失败',
+    }
+  } finally {
     exporting.value = false
-  }, 3000)
+  }
 }
+
+onBeforeUnmount(() => {
+  if (exportTask.value?.file_url) {
+    URL.revokeObjectURL(exportTask.value.file_url)
+  }
+})
 </script>
 
 <template>
@@ -41,7 +65,7 @@ const startExport = async () => {
           >
             <option value="json">JSON</option>
             <option value="csv">CSV</option>
-            <option value="report">HTML 年度报告</option>
+            <option value="report">JSON 分析报告</option>
           </select>
         </div>
 
@@ -95,11 +119,16 @@ const startExport = async () => {
           <div class="text-green-600 mb-4">✓ 导出完成</div>
           <a
             :href="exportTask.file_url"
-            download
+            :download="exportTask.filename"
             class="inline-block px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
           >
             下载文件
           </a>
+        </div>
+
+        <div v-if="exportTask.status === 'failed'" class="text-center py-4">
+          <div class="text-red-600 mb-2">导出失败</div>
+          <div class="text-sm text-gray-500">{{ exportTask.error }}</div>
         </div>
       </div>
     </div>

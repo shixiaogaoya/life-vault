@@ -45,6 +45,8 @@ async def main():
         temp_dir = Path(tempfile.gettempdir()) / "lifevault_test"
         temp_dir.mkdir(exist_ok=True)
         db_path = temp_dir / "test_e2e.db"
+        if db_path.exists():
+            db_path.unlink()
 
         # Set environment variable so all operations use the same database
         os.environ["LIFEVAULT_DB_PATH"] = str(db_path)

@@ -20,11 +20,34 @@ export interface UnifiedMessage {
   type_name?: string
 }
 
+export interface MessageListItem {
+  id: number
+  msg_type: number
+  sub_type: number
+  timestamp: number
+  chat_id: string
+  chat_name: string
+  sender_name: string
+  is_sender: boolean
+  content: string
+  type_name: string
+}
+
+export interface SearchResultItem {
+  id: number
+  timestamp: number
+  chat_name: string
+  sender_name: string
+  content: string
+  snippet: string
+  type_name: string
+}
+
 export interface MessageListResponse {
   total: number
   page: number
   page_size: number
-  messages: UnifiedMessage[]
+  messages: MessageListItem[]
 }
 
 export interface SearchResponse {
@@ -32,7 +55,7 @@ export interface SearchResponse {
   page: number
   page_size: number
   query: string
-  results: UnifiedMessage[]
+  results: SearchResultItem[]
 }
 
 export interface StatsResponse {
@@ -45,5 +68,17 @@ export interface StatsResponse {
     chat_id: string
     chat_name: string
     message_count: number
+  }>
+}
+
+export interface ImportResponse {
+  success: boolean
+  total_messages: number
+  imported: number
+  failed: number
+  errors: Array<{
+    local_id: number | null
+    error_type: string
+    error_message: string
   }>
 }
