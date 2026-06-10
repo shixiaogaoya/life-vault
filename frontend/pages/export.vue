@@ -8,6 +8,7 @@ const exportOptions = ref({
   date_to: '',
   mask_sensitive: false,
   mask_terms: '',
+  anonymize: false,
 })
 
 const exportTask = ref<{
@@ -104,6 +105,15 @@ onBeforeUnmount(() => {
 
         <div class="mb-4 rounded-md border border-gray-200 p-4">
           <label class="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <input
+              v-model="exportOptions.anonymize"
+              type="checkbox"
+              class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            >
+            分享匿名化
+          </label>
+
+          <label class="mt-3 flex items-center gap-2 text-sm font-medium text-gray-700">
             <input
               v-model="exportOptions.mask_sensitive"
               type="checkbox"

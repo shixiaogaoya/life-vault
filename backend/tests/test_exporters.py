@@ -392,3 +392,113 @@ class TestExporters:
         assert "13900001111" not in text
         assert "Eve" not in text
         assert "139****1111" in text
+
+    async def test_json_export_can_anonymize_for_sharing(self):
+        """Test JSON export replaces names, strips location metadata, and sanitizes paths."""
+        from app.db import get_db_path
+
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        await insert_messages(
+            [
+                UnifiedMessage(
+                    id=0,
+                    source=MessageSource.WECHAT_4X,
+                    msg_svr_id=5301,
+                    local_id=301,
+                    msg_type=1,
+                    timestamp=1704067200,
+                    chat_id="room_sensitive",
+                    chat_name="Project Chat",
+                    sender_id="alice_id",
+                    sender_name="Alice",
+                    content="Alice shared C:\\Users\\alice\\secret.txt with Project Chat",
+                    raw={
+                        "path": "C:\\Users\\alice\\secret.txt",
+                        "location": {"latitude": 39.9, "longitude": 116.4},
+                    },
+                    metadata={"address": "北京市朝阳区望京街道1号"},
+                ),
+                UnifiedMessage(
+                    id=0,
+                    source=MessageSource.WECHAT_4X,
+                    msg_svr_id=5302,
+                    local_id=302,
+                    msg_type=1,
+                    timestamp=1704067201,
+                    chat_id="room_sensitive",
+                    chat_name="Project Chat",
+                    sender_id="alice_id",
+                    sender_name="Alice",
+                    content="Alice followed up",
+                ),
+            ]
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/export/json?anonymize=true")
+
+        assert response.status_code == 200
+        result = response.json()
+        body = json.dumps(result, ensure_ascii=False)
+        messages = [
+            message
+            for message in result["messages"]
+            if message["msg_svr_id"] in (5301, 5302)
+        ]
+
+        assert result["anonymization"]["enabled"] is True
+        assert len(messages) == 2
+        assert {message["sender_name"] for message in messages} == {"Person 1"}
+        assert {message["sender_id"] for message in messages} == {"Person 1"}
+        assert {message["chat_name"] for message in messages} == {"Chat 1"}
+        assert "Alice" not in body
+        assert "Project Chat" not in body
+        assert "C:\\Users\\alice" not in body
+        assert "39.9" not in body
+        assert "116.4" not in body
+        assert "北京市朝阳区望京街道1号" not in body
+        assert "[PATH]" in body
+        assert "[LOCATION_REMOVED]" in body
+
+    async def test_report_export_anonymizes_top_senders(self):
+        """Test report summaries use pseudonyms when anonymization is enabled."""
+        from app.db import get_db_path
+
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        await insert_messages(
+            [
+                UnifiedMessage(
+                    id=0,
+                    source=MessageSource.WECHAT_4X,
+                    msg_svr_id=5303,
+                    local_id=303,
+                    msg_type=48,
+                    timestamp=1704067200,
+                    chat_id="location_chat",
+                    chat_name="Location Chat",
+                    sender_name="Bob",
+                    content="Bob sent location 北京市朝阳区望京街道1号",
+                    raw={"latitude": 39.9, "longitude": 116.4},
+                )
+            ]
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/export/report?anonymize=true")
+
+        assert response.status_code == 200
+        result = response.json()
+        body = json.dumps(result, ensure_ascii=False)
+
+        assert result["summary"]["top_senders"][0]["name"] == "Person 1"
+        assert result["messages"][0]["content"] == "[LOCATION_REMOVED]"
+        assert "Bob" not in body
+        assert "北京市朝阳区望京街道1号" not in body

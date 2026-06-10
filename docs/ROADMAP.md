@@ -40,10 +40,10 @@ Build a **privacy-first, local-first personal data archive** that gives users co
   - [x] Emails and common local file paths
   - [x] Configurable custom terms for names, addresses, and other sensitive strings
   - [x] Automatic name and address detection (conservative rule-based matching)
-- [ ] Data anonymization for sharing
-  - [ ] Replace real names with pseudonyms
-  - [ ] Strip location metadata
-  - [ ] Sanitize file paths
+- [x] Data anonymization for sharing
+  - [x] Replace real names with pseudonyms
+  - [x] Strip location metadata
+  - [x] Sanitize file paths
 - [ ] Export encryption
   - [ ] Password-protected JSON/CSV
   - [ ] GPG-encrypted exports

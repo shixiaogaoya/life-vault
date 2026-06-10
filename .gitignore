@@ -57,6 +57,7 @@ logs/
 tmp/
 temp/
 *.tmp
+.git-workaround/
 
 # Environment variables
 .env

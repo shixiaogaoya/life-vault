@@ -63,6 +63,7 @@ export const useApi = () => {
     date_to?: string
     mask_sensitive?: boolean
     mask_terms?: string
+    anonymize?: boolean
   }): string => {
     const query = new URLSearchParams()
     if (params.chat_id) query.append('chat_id', params.chat_id)
@@ -70,6 +71,7 @@ export const useApi = () => {
     if (params.date_to) query.append('date_to', params.date_to)
     if (params.mask_sensitive) query.append('mask_sensitive', 'true')
     if (params.mask_sensitive && params.mask_terms) query.append('mask_terms', params.mask_terms)
+    if (params.anonymize) query.append('anonymize', 'true')
     const suffix = query.toString()
 
     return `${baseURL}/api/export/${params.format}${suffix ? `?${suffix}` : ''}`
@@ -82,6 +84,7 @@ export const useApi = () => {
     date_to?: string
     mask_sensitive?: boolean
     mask_terms?: string
+    anonymize?: boolean
   }): Promise<{ blob: Blob, filename: string }> => {
     const response = await fetch(buildExportUrl(params))
     if (!response.ok) throw new Error(await response.text() || 'Failed to export messages')

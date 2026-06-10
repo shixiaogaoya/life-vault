@@ -13,12 +13,106 @@ from app.models.message import UnifiedMessage
 from app.privacy.masking import (
     PrivacyMaskingOptions,
     mask_message_dict,
+    mask_text,
     masking_summary,
     parse_custom_terms,
 )
 
 
 router = APIRouter(prefix="/api/export", tags=["export"])
+
+LOCATION_PLACEHOLDER = "[LOCATION_REMOVED]"
+PATH_ONLY_MASKING_OPTIONS = PrivacyMaskingOptions(
+    enabled=True,
+    mask_phone=False,
+    mask_id_card=False,
+    mask_email=False,
+    mask_paths=True,
+    mask_names=False,
+    mask_addresses=False,
+)
+LOCATION_METADATA_KEYS = {
+    "address",
+    "coordinate",
+    "coordinates",
+    "gps",
+    "lat",
+    "latitude",
+    "lng",
+    "location",
+    "lon",
+    "longitude",
+    "map",
+    "poi",
+    "位置",
+    "地址",
+    "经度",
+    "纬度",
+}
+
+
+class ExportAnonymizer:
+    def __init__(self, enabled: bool, custom_terms: tuple[str, ...] = ()) -> None:
+        self.enabled = enabled
+        self._people: dict[str, str] = {}
+        self._chats: dict[str, str] = {}
+        if enabled:
+            for term in custom_terms:
+                self.add_person(term)
+
+    def add_person(self, value: str) -> None:
+        name = value.strip()
+        if name and name not in self._people:
+            self._people[name] = f"Person {len(self._people) + 1}"
+
+    def add_person_aliases(self, values: tuple[str | None, ...]) -> None:
+        aliases = [value.strip() for value in values if value and value.strip()]
+        if not aliases:
+            return
+
+        pseudonym = next((self._people[alias] for alias in aliases if alias in self._people), None)
+        if pseudonym is None:
+            pseudonym = f"Person {len(self._people) + 1}"
+        for alias in aliases:
+            self._people[alias] = pseudonym
+
+    def add_chat(self, value: str) -> None:
+        name = value.strip()
+        if name and name not in self._people and name not in self._chats:
+            self._chats[name] = f"Chat {len(self._chats) + 1}"
+
+    def apply(self, message: UnifiedMessage) -> dict[str, Any]:
+        data = message.to_dict()
+        if not self.enabled:
+            return data
+
+        if data.get("msg_type") == 48:
+            data["content"] = LOCATION_PLACEHOLDER
+
+        for field_name in ("raw", "metadata"):
+            value = data.get(field_name)
+            if isinstance(value, dict):
+                data[field_name] = _strip_location_metadata(value)
+
+        anonymized = _anonymize_value(data, self.replacements())
+        if isinstance(anonymized, dict):
+            metadata = anonymized.get("metadata")
+            if not isinstance(metadata, dict):
+                metadata = {}
+            metadata["privacy_anonymization"] = self.summary()
+            anonymized["metadata"] = metadata
+        return anonymized
+
+    def replacements(self) -> dict[str, str]:
+        return {**self._people, **self._chats}
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "pseudonym_count": len(set(self._people.values())) + len(set(self._chats.values())),
+            "location_metadata_stripped": self.enabled,
+            "paths_sanitized": self.enabled,
+        }
 
 
 async def _query_export_messages(filters: dict[str, str]) -> list[UnifiedMessage]:
@@ -37,11 +131,13 @@ async def export_csv(
     date_to: str | None = Query(None),
     mask_sensitive: bool = Query(False),
     mask_terms: str | None = Query(None),
+    anonymize: bool = Query(False),
 ) -> StreamingResponse:
     """导出消息为 CSV 格式"""
     filters = _build_filters(chat_id, date_from, date_to)
     masking_options = _build_masking_options(mask_sensitive, mask_terms)
     messages = await _query_export_messages(filters)
+    anonymizer = _build_anonymizer(messages, anonymize, mask_terms)
 
     output = StringIO()
     writer = csv.DictWriter(
@@ -61,7 +157,7 @@ async def export_csv(
     )
     writer.writeheader()
     for message in messages:
-        writer.writerow(_message_to_export_dict(message, masking_options))
+        writer.writerow(_message_to_export_dict(message, masking_options, anonymizer))
 
     csv_content = output.getvalue()
     output.close()
@@ -70,7 +166,7 @@ async def export_csv(
         iter([csv_content.encode("utf-8-sig")]),
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": f"attachment; filename=messages_{_filename_scope(filters, masking_options)}.csv"
+            "Content-Disposition": f"attachment; filename=messages_{_filename_scope(filters, masking_options, anonymizer)}.csv"
         },
     )
 
@@ -82,17 +178,23 @@ async def export_json(
     date_to: str | None = Query(None),
     mask_sensitive: bool = Query(False),
     mask_terms: str | None = Query(None),
+    anonymize: bool = Query(False),
 ) -> dict[str, Any]:
     """导出消息为 JSON 格式"""
     filters = _build_filters(chat_id, date_from, date_to)
     masking_options = _build_masking_options(mask_sensitive, mask_terms)
     messages = await _query_export_messages(filters)
+    anonymizer = _build_anonymizer(messages, anonymize, mask_terms)
 
     return {
         "total": len(messages),
         "filters": filters,
         "privacy": masking_summary(masking_options),
-        "messages": [_message_to_export_dict(message, masking_options) for message in messages],
+        "anonymization": anonymizer.summary(),
+        "messages": [
+            _message_to_export_dict(message, masking_options, anonymizer)
+            for message in messages
+        ],
     }
 
 
@@ -103,14 +205,19 @@ async def export_report(
     date_to: str | None = Query(None),
     mask_sensitive: bool = Query(False),
     mask_terms: str | None = Query(None),
+    anonymize: bool = Query(False),
 ) -> dict[str, Any]:
     """导出数据分析报告（JSON 格式，包含统计信息）"""
     filters = _build_filters(chat_id, date_from, date_to)
     masking_options = _build_masking_options(mask_sensitive, mask_terms)
     messages = await _query_export_messages(filters)
-    exported_messages = [_message_to_export_dict(message, masking_options) for message in messages]
+    anonymizer = _build_anonymizer(messages, anonymize, mask_terms)
+    exported_messages = [
+        _message_to_export_dict(message, masking_options, anonymizer)
+        for message in messages
+    ]
 
-    return _build_report_payload(messages, exported_messages, filters, masking_options)
+    return _build_report_payload(messages, exported_messages, filters, masking_options, anonymizer)
 
 
 @router.get("/markdown")
@@ -120,20 +227,25 @@ async def export_markdown(
     date_to: str | None = Query(None),
     mask_sensitive: bool = Query(False),
     mask_terms: str | None = Query(None),
+    anonymize: bool = Query(False),
 ) -> StreamingResponse:
     """导出消息为 Markdown 聊天记录"""
     filters = _build_filters(chat_id, date_from, date_to)
     masking_options = _build_masking_options(mask_sensitive, mask_terms)
     messages = await _query_export_messages(filters)
-    exported_messages = [_message_to_export_dict(message, masking_options) for message in messages]
-    report = _build_report_payload(messages, exported_messages, filters, masking_options)
+    anonymizer = _build_anonymizer(messages, anonymize, mask_terms)
+    exported_messages = [
+        _message_to_export_dict(message, masking_options, anonymizer)
+        for message in messages
+    ]
+    report = _build_report_payload(messages, exported_messages, filters, masking_options, anonymizer)
     content = _render_markdown_export(report)
 
     return StreamingResponse(
         iter([content.encode("utf-8")]),
         media_type="text/markdown; charset=utf-8",
         headers={
-            "Content-Disposition": f"attachment; filename=messages_{_filename_scope(filters, masking_options)}.md"
+            "Content-Disposition": f"attachment; filename=messages_{_filename_scope(filters, masking_options, anonymizer)}.md"
         },
     )
 
@@ -145,20 +257,25 @@ async def export_html(
     date_to: str | None = Query(None),
     mask_sensitive: bool = Query(False),
     mask_terms: str | None = Query(None),
+    anonymize: bool = Query(False),
 ) -> StreamingResponse:
     """导出自包含 HTML 分析报告"""
     filters = _build_filters(chat_id, date_from, date_to)
     masking_options = _build_masking_options(mask_sensitive, mask_terms)
     messages = await _query_export_messages(filters)
-    exported_messages = [_message_to_export_dict(message, masking_options) for message in messages]
-    report = _build_report_payload(messages, exported_messages, filters, masking_options)
+    anonymizer = _build_anonymizer(messages, anonymize, mask_terms)
+    exported_messages = [
+        _message_to_export_dict(message, masking_options, anonymizer)
+        for message in messages
+    ]
+    report = _build_report_payload(messages, exported_messages, filters, masking_options, anonymizer)
     content = _render_html_export(report)
 
     return StreamingResponse(
         iter([content.encode("utf-8")]),
         media_type="text/html; charset=utf-8",
         headers={
-            "Content-Disposition": f"attachment; filename=messages_{_filename_scope(filters, masking_options)}.html"
+            "Content-Disposition": f"attachment; filename=messages_{_filename_scope(filters, masking_options, anonymizer)}.html"
         },
     )
 
@@ -168,12 +285,14 @@ def _build_report_payload(
     exported_messages: list[dict[str, Any]],
     filters: dict[str, str],
     masking_options: PrivacyMaskingOptions,
+    anonymizer: ExportAnonymizer,
 ) -> dict[str, Any]:
     total_messages = len(messages)
     if total_messages == 0:
         return {
             "filters": filters,
             "privacy": masking_summary(masking_options),
+            "anonymization": anonymizer.summary(),
             "summary": {
                 "total_messages": 0,
                 "date_range": {"earliest": None, "latest": None},
@@ -214,6 +333,7 @@ def _build_report_payload(
     return {
         "filters": filters,
         "privacy": masking_summary(masking_options),
+        "anonymization": anonymizer.summary(),
         "summary": {
             "total_messages": total_messages,
             "date_range": {
@@ -230,6 +350,7 @@ def _build_report_payload(
 def _render_markdown_export(report: dict[str, Any]) -> str:
     summary = report["summary"]
     privacy = report["privacy"]
+    anonymization = report["anonymization"]
     lines = [
         "# LifeVault Chat Export",
         "",
@@ -238,6 +359,7 @@ def _render_markdown_export(report: dict[str, Any]) -> str:
         f"- Total messages: {summary['total_messages']}",
         f"- Date range: {_format_timestamp(summary['date_range']['earliest'])} - {_format_timestamp(summary['date_range']['latest'])}",
         f"- Privacy masking: {'enabled' if privacy['enabled'] else 'disabled'}",
+        f"- Sharing anonymization: {'enabled' if anonymization['enabled'] else 'disabled'}",
         "",
         "## Message Types",
         "",
@@ -276,6 +398,7 @@ def _render_markdown_export(report: dict[str, Any]) -> str:
 def _render_html_export(report: dict[str, Any]) -> str:
     summary = report["summary"]
     privacy = report["privacy"]
+    anonymization = report["anonymization"]
     type_rows = "\n".join(
         f"<tr><td>{html.escape(str(type_name))}</td><td>{count}</td></tr>"
         for type_name, count in summary["message_types"].items()
@@ -315,6 +438,7 @@ def _render_html_export(report: dict[str, Any]) -> str:
       <div class="card"><div class="muted">Total messages</div><div class="metric">{summary['total_messages']}</div></div>
       <div class="card"><div class="muted">Date range</div><div>{html.escape(_format_timestamp(summary['date_range']['earliest']))}<br>{html.escape(_format_timestamp(summary['date_range']['latest']))}</div></div>
       <div class="card"><div class="muted">Privacy masking</div><div>{'Enabled' if privacy['enabled'] else 'Disabled'}</div></div>
+      <div class="card"><div class="muted">Sharing anonymization</div><div>{'Enabled' if anonymization['enabled'] else 'Disabled'}</div></div>
     </section>
     <h2>Message Types</h2>
     <table><thead><tr><th>Type</th><th>Count</th></tr></thead><tbody>{type_rows}</tbody></table>
@@ -379,16 +503,78 @@ def _build_masking_options(mask_sensitive: bool, mask_terms: str | None) -> Priv
     )
 
 
+def _build_anonymizer(
+    messages: list[UnifiedMessage], anonymize: bool, mask_terms: str | None
+) -> ExportAnonymizer:
+    anonymizer = ExportAnonymizer(anonymize, parse_custom_terms(mask_terms))
+    if not anonymize:
+        return anonymizer
+
+    for message in messages:
+        anonymizer.add_person_aliases((message.sender_name, message.sender_id))
+        anonymizer.add_chat(message.chat_name or message.chat_id)
+    return anonymizer
+
+
 def _message_to_export_dict(
     message: UnifiedMessage,
     masking_options: PrivacyMaskingOptions,
+    anonymizer: ExportAnonymizer,
 ) -> dict[str, Any]:
-    return mask_message_dict(message.to_dict(), masking_options)
+    return mask_message_dict(anonymizer.apply(message), masking_options)
 
 
-def _filename_scope(filters: dict[str, str], masking_options: PrivacyMaskingOptions) -> str:
+def _filename_scope(
+    filters: dict[str, str],
+    masking_options: PrivacyMaskingOptions,
+    anonymizer: ExportAnonymizer,
+) -> str:
     scope = filters.get("chat_id", "all")
-    return f"{scope}_masked" if masking_options.enabled else scope
+    suffixes: list[str] = []
+    if masking_options.enabled:
+        suffixes.append("masked")
+    if anonymizer.enabled:
+        suffixes.append("anonymized")
+    return "_".join([scope, *suffixes]) if suffixes else scope
+
+
+def _strip_location_metadata(value: dict[str, Any]) -> dict[str, Any]:
+    stripped: dict[str, Any] = {}
+    for key, item in value.items():
+        if _is_location_key(key):
+            stripped[key] = LOCATION_PLACEHOLDER
+        elif isinstance(item, dict):
+            stripped[key] = _strip_location_metadata(item)
+        elif isinstance(item, list):
+            stripped[key] = [
+                _strip_location_metadata(child) if isinstance(child, dict) else child
+                for child in item
+            ]
+        else:
+            stripped[key] = item
+    return stripped
+
+
+def _is_location_key(key: Any) -> bool:
+    key_text = str(key).strip().lower()
+    return key_text in LOCATION_METADATA_KEYS or any(
+        marker in key_text for marker in ("latitude", "longitude", "location")
+    )
+
+
+def _anonymize_value(value: Any, replacements: dict[str, str]) -> Any:
+    if isinstance(value, str):
+        anonymized = value
+        for original, pseudonym in sorted(replacements.items(), key=lambda item: len(item[0]), reverse=True):
+            anonymized = anonymized.replace(original, pseudonym)
+        return mask_text(anonymized, PATH_ONLY_MASKING_OPTIONS)
+    if isinstance(value, list):
+        return [_anonymize_value(item, replacements) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_anonymize_value(item, replacements) for item in value)
+    if isinstance(value, dict):
+        return {key: _anonymize_value(item, replacements) for key, item in value.items()}
+    return value
 
 
 def _get_type_name(msg_type: int, sub_type: int = 0) -> str:

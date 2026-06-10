@@ -10,7 +10,7 @@ LifeVault is an open-source personal archive tool for WeChat chat history, featu
 - 🔍 **Full-Text Search** - High-performance search powered by SQLite FTS5
 - 📊 **Statistical Analysis** - Message distribution, top chats, timeline analysis
 - 📤 **Multi-Format Export** - JSON, CSV, Markdown, HTML, and analysis reports
-- 🛡️ **Masked Export** - Mask phone numbers, ID cards, emails, file paths, conservative Chinese name/address matches, and custom terms before exporting
+- 🛡️ **Private Export** - Mask identifiers before exporting, or generate anonymized exports for sharing
 - 🎨 **Modern Interface** - Responsive web UI built with Nuxt 3
 - 🚀 **Lightweight Deployment** - Zero complex configuration, ready out of the box
 
@@ -145,10 +145,11 @@ After starting the backend, visit:
 | `/api/export/html` | GET | Export a self-contained HTML analysis report |
 | `/api/import` | POST | Import a LifeVault JSON file or WeChat database paths |
 
-Export endpoints support masking query parameters:
+Export endpoints support privacy query parameters:
 
 - `mask_sensitive=true`: mask phone numbers, ID cards, emails, common local file paths, and conservative Chinese name/address matches in exported data
 - `mask_terms=Alice,Beijing`: additionally mask custom names, addresses, aliases, or other sensitive terms
+- `anonymize=true`: generate sharing-oriented anonymized exports by replacing people and chats with `Person N` / `Chat N`, removing location messages and location metadata, and sanitizing local file paths
 
 ## 🧪 Run Tests
 
@@ -221,6 +222,7 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
 ### v0.2.0 (Planned)
 - [x] Export masking (phone numbers, IDs, emails, custom terms)
 - [x] Automatic name/address detection (conservative rules)
+- [x] Sharing anonymization for exports
 - [ ] RAG-powered Q&A (LLM-based)
 - [x] More export formats (HTML reports, Markdown)
 - [ ] Enhanced data visualization
