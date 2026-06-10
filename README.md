@@ -152,6 +152,8 @@ curl -X POST http://localhost:8000/api/import \
 - `mask_sensitive=true`：导出结果中遮蔽手机号、身份证、邮箱、常见本地文件路径，并保守识别中文姓名和地址片段
 - `mask_terms=张三,北京市海淀区`：额外遮蔽自定义人名、地址、别名或其他敏感词
 - `anonymize=true`：为分享场景生成匿名化导出，将联系人和聊天替换为 `Person N` / `Chat N`，移除位置消息和位置元数据，并清理本地文件路径
+- `encrypt_password=强密码`：为 JSON/CSV 导出生成密码保护的 `.lvenc` 文件
+- `gpg_recipient=alice@example.com`：使用本机 GPG 公钥为 JSON/CSV 导出生成 `.json.gpg` 或 `.csv.gpg` 文件
 
 ## 🧪 运行测试
 
@@ -171,7 +173,7 @@ sh scripts/check.sh
 ```
 
 当前测试覆盖：
-- ✅ 41+ 个测试用例
+- ✅ 50+ 个测试用例
 - ✅ API 端点测试
 - ✅ 数据库操作测试
 - ✅ 数据模型验证测试

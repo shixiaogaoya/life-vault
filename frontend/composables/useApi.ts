@@ -64,6 +64,8 @@ export const useApi = () => {
     mask_sensitive?: boolean
     mask_terms?: string
     anonymize?: boolean
+    encrypt_password?: string
+    gpg_recipient?: string
   }): string => {
     const query = new URLSearchParams()
     if (params.chat_id) query.append('chat_id', params.chat_id)
@@ -72,6 +74,8 @@ export const useApi = () => {
     if (params.mask_sensitive) query.append('mask_sensitive', 'true')
     if (params.mask_sensitive && params.mask_terms) query.append('mask_terms', params.mask_terms)
     if (params.anonymize) query.append('anonymize', 'true')
+    if (params.encrypt_password) query.append('encrypt_password', params.encrypt_password)
+    if (params.gpg_recipient) query.append('gpg_recipient', params.gpg_recipient)
     const suffix = query.toString()
 
     return `${baseURL}/api/export/${params.format}${suffix ? `?${suffix}` : ''}`
@@ -85,6 +89,8 @@ export const useApi = () => {
     mask_sensitive?: boolean
     mask_terms?: string
     anonymize?: boolean
+    encrypt_password?: string
+    gpg_recipient?: string
   }): Promise<{ blob: Blob, filename: string }> => {
     const response = await fetch(buildExportUrl(params))
     if (!response.ok) throw new Error(await response.text() || 'Failed to export messages')
@@ -97,7 +103,8 @@ export const useApi = () => {
       markdown: 'md',
       html: 'html',
     }
-    const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] || `lifevault-export.${extensions[params.format]}`
+    const encryptedExtension = params.encrypt_password ? 'lvenc' : `${extensions[params.format]}.gpg`
+    const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] || `lifevault-export.${params.encrypt_password || params.gpg_recipient ? encryptedExtension : extensions[params.format]}`
     return {
       blob: await response.blob(),
       filename,

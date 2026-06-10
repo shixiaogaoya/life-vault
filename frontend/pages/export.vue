@@ -9,6 +9,9 @@ const exportOptions = ref({
   mask_sensitive: false,
   mask_terms: '',
   anonymize: false,
+  encryption_mode: 'none' as 'none' | 'password' | 'gpg',
+  encrypt_password: '',
+  gpg_recipient: '',
 })
 
 const exportTask = ref<{
@@ -19,6 +22,34 @@ const exportTask = ref<{
 } | null>(null)
 const exporting = ref(false)
 
+const supportsPasswordProtection = computed(() =>
+  exportOptions.value.format === 'json' || exportOptions.value.format === 'csv'
+)
+
+const exportDisabled = computed(() => {
+  if (exporting.value) {
+    return true
+  }
+  if (exportOptions.value.encryption_mode === 'password') {
+    return !exportOptions.value.encrypt_password
+  }
+  if (exportOptions.value.encryption_mode === 'gpg') {
+    return !exportOptions.value.gpg_recipient
+  }
+  return false
+})
+
+watch(
+  () => exportOptions.value.format,
+  () => {
+    if (!supportsPasswordProtection.value) {
+      exportOptions.value.encryption_mode = 'none'
+      exportOptions.value.encrypt_password = ''
+      exportOptions.value.gpg_recipient = ''
+    }
+  }
+)
+
 const startExport = async () => {
   exporting.value = true
   exportTask.value = {
@@ -26,7 +57,15 @@ const startExport = async () => {
   }
 
   try {
-    const result = await exportMessages(exportOptions.value)
+    const result = await exportMessages({
+      ...exportOptions.value,
+      encrypt_password: exportOptions.value.encryption_mode === 'password'
+        ? exportOptions.value.encrypt_password
+        : undefined,
+      gpg_recipient: exportOptions.value.encryption_mode === 'gpg'
+        ? exportOptions.value.gpg_recipient
+        : undefined,
+    })
     if (exportTask.value?.file_url) {
       URL.revokeObjectURL(exportTask.value.file_url)
     }
@@ -129,11 +168,41 @@ onBeforeUnmount(() => {
             placeholder="可选：输入要额外脱敏的人名、地址等，用逗号或换行分隔"
             class="mt-3 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
           ></textarea>
+
+          <div class="mt-3">
+            <label class="block text-sm font-medium text-gray-700 mb-2">导出加密（JSON/CSV）</label>
+            <select
+              v-model="exportOptions.encryption_mode"
+              :disabled="!supportsPasswordProtection"
+              class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+            >
+              <option value="none">不加密</option>
+              <option value="password">密码保护</option>
+              <option value="gpg">GPG 收件人</option>
+            </select>
+          </div>
+
+          <input
+            v-model="exportOptions.encrypt_password"
+            :disabled="exportOptions.encryption_mode !== 'password'"
+            type="password"
+            autocomplete="new-password"
+            placeholder="输入导出文件密码"
+            class="mt-3 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+          >
+
+          <input
+            v-model="exportOptions.gpg_recipient"
+            :disabled="exportOptions.encryption_mode !== 'gpg'"
+            type="text"
+            placeholder="输入 GPG 收件人邮箱或密钥 ID"
+            class="mt-3 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+          >
         </div>
 
         <button
           class="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400"
-          :disabled="exporting"
+          :disabled="exportDisabled"
           @click="startExport"
         >
           {{ exporting ? '导出中...' : '开始导出' }}

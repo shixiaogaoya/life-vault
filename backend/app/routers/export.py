@@ -1,12 +1,20 @@
 import csv
+import base64
 import html
+import json
+import os
 import re
+import shutil
+import subprocess
 from datetime import datetime
 from io import StringIO
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from app.db import query_messages
 from app.models.message import UnifiedMessage
@@ -22,6 +30,8 @@ from app.privacy.masking import (
 router = APIRouter(prefix="/api/export", tags=["export"])
 
 LOCATION_PLACEHOLDER = "[LOCATION_REMOVED]"
+ENCRYPTED_EXPORT_FORMAT = "lifevault-encrypted-export-v1"
+ENCRYPTION_ITERATIONS = 390000
 PATH_ONLY_MASKING_OPTIONS = PrivacyMaskingOptions(
     enabled=True,
     mask_phone=False,
@@ -132,8 +142,11 @@ async def export_csv(
     mask_sensitive: bool = Query(False),
     mask_terms: str | None = Query(None),
     anonymize: bool = Query(False),
+    encrypt_password: str | None = Query(None),
+    gpg_recipient: str | None = Query(None),
 ) -> StreamingResponse:
     """导出消息为 CSV 格式"""
+    _validate_export_encryption(encrypt_password, gpg_recipient)
     filters = _build_filters(chat_id, date_from, date_to)
     masking_options = _build_masking_options(mask_sensitive, mask_terms)
     messages = await _query_export_messages(filters)
@@ -161,17 +174,26 @@ async def export_csv(
 
     csv_content = output.getvalue()
     output.close()
+    csv_bytes = csv_content.encode("utf-8-sig")
+    filename_scope = _filename_scope(filters, masking_options, anonymizer)
+
+    if encrypt_password is not None:
+        encrypted = _encrypt_export_payload(csv_bytes, "csv", encrypt_password)
+        return _encrypted_streaming_response(encrypted, f"messages_{filename_scope}.lvenc")
+    if gpg_recipient is not None:
+        encrypted = _encrypt_export_payload_with_gpg(csv_bytes, gpg_recipient)
+        return _gpg_streaming_response(encrypted, f"messages_{filename_scope}.csv.gpg")
 
     return StreamingResponse(
-        iter([csv_content.encode("utf-8-sig")]),
+        iter([csv_bytes]),
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": f"attachment; filename=messages_{_filename_scope(filters, masking_options, anonymizer)}.csv"
+            "Content-Disposition": f"attachment; filename=messages_{filename_scope}.csv"
         },
     )
 
 
-@router.get("/json")
+@router.get("/json", response_model=None)
 async def export_json(
     chat_id: str | None = Query(None),
     date_from: str | None = Query(None),
@@ -179,14 +201,17 @@ async def export_json(
     mask_sensitive: bool = Query(False),
     mask_terms: str | None = Query(None),
     anonymize: bool = Query(False),
-) -> dict[str, Any]:
+    encrypt_password: str | None = Query(None),
+    gpg_recipient: str | None = Query(None),
+) -> dict[str, Any] | StreamingResponse:
     """导出消息为 JSON 格式"""
+    _validate_export_encryption(encrypt_password, gpg_recipient)
     filters = _build_filters(chat_id, date_from, date_to)
     masking_options = _build_masking_options(mask_sensitive, mask_terms)
     messages = await _query_export_messages(filters)
     anonymizer = _build_anonymizer(messages, anonymize, mask_terms)
 
-    return {
+    payload = {
         "total": len(messages),
         "filters": filters,
         "privacy": masking_summary(masking_options),
@@ -197,6 +222,19 @@ async def export_json(
         ],
     }
 
+    if encrypt_password is not None:
+        payload_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        encrypted = _encrypt_export_payload(payload_bytes, "json", encrypt_password)
+        filename_scope = _filename_scope(filters, masking_options, anonymizer)
+        return _encrypted_streaming_response(encrypted, f"messages_{filename_scope}.lvenc")
+    if gpg_recipient is not None:
+        payload_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        encrypted = _encrypt_export_payload_with_gpg(payload_bytes, gpg_recipient)
+        filename_scope = _filename_scope(filters, masking_options, anonymizer)
+        return _gpg_streaming_response(encrypted, f"messages_{filename_scope}.json.gpg")
+
+    return payload
+
 
 @router.get("/report")
 async def export_report(
@@ -206,8 +244,11 @@ async def export_report(
     mask_sensitive: bool = Query(False),
     mask_terms: str | None = Query(None),
     anonymize: bool = Query(False),
+    encrypt_password: str | None = Query(None),
+    gpg_recipient: str | None = Query(None),
 ) -> dict[str, Any]:
     """导出数据分析报告（JSON 格式，包含统计信息）"""
+    _reject_unsupported_encryption(encrypt_password, gpg_recipient)
     filters = _build_filters(chat_id, date_from, date_to)
     masking_options = _build_masking_options(mask_sensitive, mask_terms)
     messages = await _query_export_messages(filters)
@@ -228,8 +269,11 @@ async def export_markdown(
     mask_sensitive: bool = Query(False),
     mask_terms: str | None = Query(None),
     anonymize: bool = Query(False),
+    encrypt_password: str | None = Query(None),
+    gpg_recipient: str | None = Query(None),
 ) -> StreamingResponse:
     """导出消息为 Markdown 聊天记录"""
+    _reject_unsupported_encryption(encrypt_password, gpg_recipient)
     filters = _build_filters(chat_id, date_from, date_to)
     masking_options = _build_masking_options(mask_sensitive, mask_terms)
     messages = await _query_export_messages(filters)
@@ -258,8 +302,11 @@ async def export_html(
     mask_sensitive: bool = Query(False),
     mask_terms: str | None = Query(None),
     anonymize: bool = Query(False),
+    encrypt_password: str | None = Query(None),
+    gpg_recipient: str | None = Query(None),
 ) -> StreamingResponse:
     """导出自包含 HTML 分析报告"""
+    _reject_unsupported_encryption(encrypt_password, gpg_recipient)
     filters = _build_filters(chat_id, date_from, date_to)
     masking_options = _build_masking_options(mask_sensitive, mask_terms)
     messages = await _query_export_messages(filters)
@@ -500,6 +547,102 @@ def _build_masking_options(mask_sensitive: bool, mask_terms: str | None) -> Priv
     return PrivacyMaskingOptions(
         enabled=mask_sensitive,
         custom_terms=parse_custom_terms(mask_terms) if mask_sensitive else (),
+    )
+
+
+def _reject_unsupported_encryption(
+    encrypt_password: str | None, gpg_recipient: str | None
+) -> None:
+    if encrypt_password is not None or gpg_recipient is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Encrypted export is only supported for JSON and CSV formats",
+        )
+
+
+def _validate_export_encryption(
+    encrypt_password: str | None, gpg_recipient: str | None
+) -> None:
+    if encrypt_password is not None and gpg_recipient is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Choose either encrypt_password or gpg_recipient, not both",
+        )
+    if encrypt_password is not None and not encrypt_password:
+        raise HTTPException(status_code=400, detail="encrypt_password must not be empty")
+    if gpg_recipient is not None and not gpg_recipient.strip():
+        raise HTTPException(status_code=400, detail="gpg_recipient must not be empty")
+
+
+def _encrypt_export_payload(payload: bytes, payload_format: str, password: str) -> bytes:
+    salt = os.urandom(16)
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=ENCRYPTION_ITERATIONS,
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(password.encode("utf-8")))
+    ciphertext = Fernet(key).encrypt(payload).decode("ascii")
+    envelope = {
+        "format": ENCRYPTED_EXPORT_FORMAT,
+        "cipher": "fernet",
+        "kdf": "pbkdf2-sha256",
+        "iterations": ENCRYPTION_ITERATIONS,
+        "salt": base64.b64encode(salt).decode("ascii"),
+        "payload_format": payload_format,
+        "ciphertext": ciphertext,
+    }
+    return json.dumps(envelope, separators=(",", ":")).encode("utf-8")
+
+
+def _encrypted_streaming_response(content: bytes, filename: str) -> StreamingResponse:
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.lifevault.encrypted+json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+def _encrypt_export_payload_with_gpg(payload: bytes, recipient: str) -> bytes:
+    gpg_path = shutil.which("gpg") or shutil.which("gpg.exe")
+    if not gpg_path:
+        raise HTTPException(status_code=400, detail="gpg executable was not found")
+
+    command = [
+        gpg_path,
+        "--batch",
+        "--yes",
+        "--trust-model",
+        "always",
+        "--encrypt",
+        "--recipient",
+        recipient.strip(),
+        "--output",
+        "-",
+        "-",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            input=payload,
+            capture_output=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail="gpg encryption failed") from exc
+
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise HTTPException(status_code=400, detail=detail or "gpg encryption failed")
+    return result.stdout
+
+
+def _gpg_streaming_response(content: bytes, filename: str) -> StreamingResponse:
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 

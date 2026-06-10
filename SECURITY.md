@@ -34,9 +34,11 @@ When using LifeVault:
 - Regularly back up your `~/.lifevault/` directory to secure locations
 
 ### Data Export
-- Exported files (JSON, CSV, Markdown, HTML) contain **unencrypted personal data**
+- Exported files contain personal data unless masking, anonymization, or encryption options are enabled
 - Use `mask_sensitive=true` when exporting data for sharing; this masks phone numbers, ID cards, emails, local file paths, conservative Chinese name/address matches, and optional custom terms
 - Use `anonymize=true` for sharing-oriented exports; this replaces people/chats with pseudonyms, removes location messages and location metadata, and sanitizes local file paths
+- Use `encrypt_password` for password-protected JSON/CSV exports; encrypted exports are written as `.lvenc` files and the password is not stored
+- Use `gpg_recipient` for GPG-encrypted JSON/CSV exports when a local `gpg` executable and recipient public key are available
 - Export masking and anonymization do **not** modify the original local database
 - Store exports securely and delete them when no longer needed
 - Be cautious when sharing exports — they may contain sensitive information
@@ -77,7 +79,9 @@ Planned security enhancements:
 - [x] Privacy masking for exported data (phone numbers, IDs, emails, file paths, custom terms)
 - [x] Automatic name/address detection (conservative rules)
 - [x] Data anonymization features for sharing exports
-- [ ] Export encryption options
+- [x] Export encryption options
+  - [x] Password-protected JSON/CSV exports
+  - [x] GPG-encrypted exports
 
 ### v0.3.0
 - [ ] Optional database encryption

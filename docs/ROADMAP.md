@@ -44,9 +44,9 @@ Build a **privacy-first, local-first personal data archive** that gives users co
   - [x] Replace real names with pseudonyms
   - [x] Strip location metadata
   - [x] Sanitize file paths
-- [ ] Export encryption
-  - [ ] Password-protected JSON/CSV
-  - [ ] GPG-encrypted exports
+- [x] Export encryption
+  - [x] Password-protected JSON/CSV
+  - [x] GPG-encrypted exports
 
 ### AI-Powered Features
 - [ ] RAG (Retrieval-Augmented Generation) chat

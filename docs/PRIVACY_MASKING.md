@@ -33,7 +33,7 @@ Sharing anonymization is designed for exports that need stronger redaction befor
 - Sharing anonymization uses deterministic pseudonyms inside one export payload, but pseudonym numbering is not a durable identity system across separate exports.
 - The local database, in-memory query results, and original imported records remain unmodified.
 - Name/address detection is conservative and rule-based; custom terms are still recommended for names, aliases, and addresses that do not match the built-in patterns.
-- Masked exports are still unencrypted files; users should store and share them carefully.
+- JSON and CSV exports can be encrypted with `encrypt_password` or `gpg_recipient`; other export formats remain unencrypted files.
 
 ## API Surface
 
@@ -47,15 +47,24 @@ GET /api/export/markdown?mask_sensitive=true&mask_terms=Alice,Beijing
 GET /api/export/html?mask_sensitive=true&mask_terms=Alice,Beijing
 GET /api/export/json?anonymize=true
 GET /api/export/html?anonymize=true&mask_sensitive=true&mask_terms=Alice,Beijing
+GET /api/export/json?encrypt_password=strong-password
+GET /api/export/csv?anonymize=true&encrypt_password=strong-password
+GET /api/export/json?gpg_recipient=alice@example.com
+GET /api/export/csv?anonymize=true&gpg_recipient=alice@example.com
 ```
 
 `mask_terms` accepts comma-separated or newline-separated values.
 
 `anonymize=true` can be used by itself, or together with `mask_sensitive=true`. When both are enabled, anonymization is applied first and masking is applied to the anonymized export payload.
 
+`encrypt_password` is supported for JSON and CSV exports. It returns a `.lvenc` file containing a JSON encryption envelope with PBKDF2-SHA256 key derivation, a random salt, and a Fernet ciphertext. The password is used only during export and is not stored in the local database.
+
+`gpg_recipient` is also supported for JSON and CSV exports. It returns `.json.gpg` or `.csv.gpg` output by invoking the local `gpg` executable for a recipient public key already available in the user's keyring. `encrypt_password` and `gpg_recipient` are mutually exclusive.
+
 ## Accepted Risks
 
 - False negatives are possible for informal names, aliases, partial addresses, non-Chinese phone numbers, and unusual ID formats.
 - False positives are possible for strings that resemble names, addresses, IDs, emails, or local file paths.
 - Anonymized exports may still reveal sensitive context through timestamps, message volume, message type patterns, or unrecognized sensitive text.
-- Export encryption is a separate roadmap item and is not provided by masking.
+- Built-in encrypted exports are only available for JSON and CSV. Markdown, HTML, and report exports should be stored and shared as regular unencrypted files unless another tool is used to encrypt them.
+- GPG encryption depends on a local `gpg` installation and a usable recipient public key. LifeVault does not create or manage GPG keys.

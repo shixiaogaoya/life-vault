@@ -150,6 +150,8 @@ Export endpoints support privacy query parameters:
 - `mask_sensitive=true`: mask phone numbers, ID cards, emails, common local file paths, and conservative Chinese name/address matches in exported data
 - `mask_terms=Alice,Beijing`: additionally mask custom names, addresses, aliases, or other sensitive terms
 - `anonymize=true`: generate sharing-oriented anonymized exports by replacing people and chats with `Person N` / `Chat N`, removing location messages and location metadata, and sanitizing local file paths
+- `encrypt_password=strong-password`: generate password-protected `.lvenc` files for JSON/CSV exports
+- `gpg_recipient=alice@example.com`: generate `.json.gpg` or `.csv.gpg` files for JSON/CSV exports using a local GPG public key
 
 ## 🧪 Run Tests
 
@@ -169,7 +171,7 @@ sh scripts/check.sh
 ```
 
 Current coverage:
-- ✅ 41+ test cases
+- ✅ 50+ test cases
 - ✅ API endpoint tests
 - ✅ Database operation tests
 - ✅ Data model validation tests

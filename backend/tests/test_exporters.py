@@ -1,12 +1,31 @@
 import csv
+import base64
 import json
+from types import SimpleNamespace
 
 import pytest
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from httpx import ASGITransport, AsyncClient
 
 from app.db import init_database, insert_messages
 from app.main import app
 from app.models.message import MessageSource, UnifiedMessage
+
+
+def _decrypt_export(content: bytes, password: str) -> tuple[dict, bytes]:
+    envelope = json.loads(content.decode("utf-8"))
+    salt = base64.b64decode(envelope["salt"])
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=envelope["iterations"],
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(password.encode("utf-8")))
+    plaintext = Fernet(key).decrypt(envelope["ciphertext"].encode("ascii"))
+    return envelope, plaintext
 
 
 @pytest.mark.asyncio
@@ -502,3 +521,233 @@ class TestExporters:
         assert result["messages"][0]["content"] == "[LOCATION_REMOVED]"
         assert "Bob" not in body
         assert "北京市朝阳区望京街道1号" not in body
+
+    async def test_json_export_can_be_password_protected(self):
+        """Test JSON export is encrypted when a password is provided."""
+        from app.db import get_db_path
+
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        await insert_messages(
+            [
+                UnifiedMessage(
+                    id=0,
+                    source=MessageSource.WECHAT_4X,
+                    msg_svr_id=5401,
+                    local_id=401,
+                    msg_type=1,
+                    timestamp=1704067200,
+                    chat_id="encrypted_json_chat",
+                    content="secret json export content",
+                )
+            ]
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/export/json?encrypt_password=test-pass")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith(
+            "application/vnd.lifevault.encrypted+json"
+        )
+        assert "messages_all.lvenc" in response.headers["content-disposition"]
+        assert b"secret json export content" not in response.content
+
+        envelope, plaintext = _decrypt_export(response.content, "test-pass")
+        payload = json.loads(plaintext.decode("utf-8"))
+        assert envelope["format"] == "lifevault-encrypted-export-v1"
+        assert envelope["payload_format"] == "json"
+        assert any(
+            message["content"] == "secret json export content"
+            for message in payload["messages"]
+        )
+
+    async def test_csv_export_can_be_password_protected(self):
+        """Test CSV export is encrypted when a password is provided."""
+        from app.db import get_db_path
+
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        await insert_messages(
+            [
+                UnifiedMessage(
+                    id=0,
+                    source=MessageSource.WECHAT_4X,
+                    msg_svr_id=5402,
+                    local_id=402,
+                    msg_type=1,
+                    timestamp=1704067200,
+                    chat_id="encrypted_csv_chat",
+                    content="secret csv export content",
+                )
+            ]
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/export/csv?encrypt_password=test-pass")
+
+        assert response.status_code == 200
+        assert "messages_all.lvenc" in response.headers["content-disposition"]
+        assert b"secret csv export content" not in response.content
+
+        envelope, plaintext = _decrypt_export(response.content, "test-pass")
+        csv_text = plaintext.decode("utf-8-sig")
+        assert envelope["payload_format"] == "csv"
+        assert "secret csv export content" in csv_text
+
+    async def test_password_protected_export_rejects_empty_password(self):
+        """Test encrypted exports require a non-empty password."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/export/json?encrypt_password=")
+
+        assert response.status_code == 400
+        assert "must not be empty" in response.text
+
+    async def test_password_protected_export_rejects_unsupported_formats(self):
+        """Test password protection is limited to JSON and CSV exports."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/export/html?encrypt_password=test-pass")
+
+        assert response.status_code == 400
+        assert "only supported for JSON and CSV" in response.text
+
+    async def test_json_export_can_be_gpg_encrypted(self, monkeypatch):
+        """Test JSON export can be encrypted for a GPG recipient."""
+        from app.db import get_db_path
+        from app.routers import export as export_router
+
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        await insert_messages(
+            [
+                UnifiedMessage(
+                    id=0,
+                    source=MessageSource.WECHAT_4X,
+                    msg_svr_id=5403,
+                    local_id=403,
+                    msg_type=1,
+                    timestamp=1704067200,
+                    chat_id="gpg_json_chat",
+                    content="secret gpg json content",
+                )
+            ]
+        )
+
+        captured = {}
+
+        def fake_run(command, input, capture_output, check):
+            captured["command"] = command
+            captured["input"] = input
+            captured["capture_output"] = capture_output
+            captured["check"] = check
+            return SimpleNamespace(returncode=0, stdout=b"gpg-ciphertext", stderr=b"")
+
+        monkeypatch.setattr(export_router.shutil, "which", lambda name: "gpg.exe")
+        monkeypatch.setattr(export_router.subprocess, "run", fake_run)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/export/json?gpg_recipient=alice@example.com")
+
+        assert response.status_code == 200
+        assert response.content == b"gpg-ciphertext"
+        assert "messages_all.json.gpg" in response.headers["content-disposition"]
+        assert "--recipient" in captured["command"]
+        assert "alice@example.com" in captured["command"]
+        assert b"secret gpg json content" in captured["input"]
+        assert captured["capture_output"] is True
+        assert captured["check"] is False
+
+    async def test_csv_export_can_be_gpg_encrypted(self, monkeypatch):
+        """Test CSV export can be encrypted for a GPG recipient."""
+        from app.db import get_db_path
+        from app.routers import export as export_router
+
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        await insert_messages(
+            [
+                UnifiedMessage(
+                    id=0,
+                    source=MessageSource.WECHAT_4X,
+                    msg_svr_id=5404,
+                    local_id=404,
+                    msg_type=1,
+                    timestamp=1704067200,
+                    chat_id="gpg_csv_chat",
+                    content="secret gpg csv content",
+                )
+            ]
+        )
+
+        captured = {}
+
+        def fake_run(command, input, capture_output, check):
+            captured["input"] = input
+            return SimpleNamespace(returncode=0, stdout=b"csv-gpg-ciphertext", stderr=b"")
+
+        monkeypatch.setattr(export_router.shutil, "which", lambda name: "gpg.exe")
+        monkeypatch.setattr(export_router.subprocess, "run", fake_run)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/export/csv?gpg_recipient=alice@example.com")
+
+        assert response.status_code == 200
+        assert response.content == b"csv-gpg-ciphertext"
+        assert "messages_all.csv.gpg" in response.headers["content-disposition"]
+        assert b"secret gpg csv content" in captured["input"]
+
+    async def test_gpg_export_rejects_empty_recipient(self):
+        """Test GPG exports require a non-empty recipient."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/export/json?gpg_recipient=")
+
+        assert response.status_code == 400
+        assert "gpg_recipient must not be empty" in response.text
+
+    async def test_export_rejects_multiple_encryption_modes(self):
+        """Test password and GPG encryption modes are mutually exclusive."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/api/export/json?encrypt_password=test-pass&gpg_recipient=alice@example.com"
+            )
+
+        assert response.status_code == 400
+        assert "Choose either encrypt_password or gpg_recipient" in response.text
+
+    async def test_gpg_export_reports_missing_executable(self, monkeypatch):
+        """Test GPG exports report missing local gpg executable."""
+        from app.db import get_db_path
+        from app.routers import export as export_router
+
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        monkeypatch.setattr(export_router.shutil, "which", lambda name: None)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/export/json?gpg_recipient=alice@example.com")
+
+        assert response.status_code == 400
+        assert "gpg executable was not found" in response.text
