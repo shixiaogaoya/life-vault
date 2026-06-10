@@ -32,6 +32,8 @@ All export endpoints accept the same masking options:
 GET /api/export/json?mask_sensitive=true&mask_terms=Alice,Beijing
 GET /api/export/csv?mask_sensitive=true&mask_terms=Alice,Beijing
 GET /api/export/report?mask_sensitive=true&mask_terms=Alice,Beijing
+GET /api/export/markdown?mask_sensitive=true&mask_terms=Alice,Beijing
+GET /api/export/html?mask_sensitive=true&mask_terms=Alice,Beijing
 ```
 
 `mask_terms` accepts comma-separated or newline-separated values.

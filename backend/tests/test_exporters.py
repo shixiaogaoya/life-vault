@@ -310,15 +310,85 @@ class TestExporters:
         assert "Carol" not in body
         assert "carol@example.com" not in body
 
-    async def test_html_export_placeholder(self):
-        """Test HTML export (placeholder - not implemented yet)"""
-        # HTML export would generate a report
-        # For now, we just verify the structure exists
+    async def test_markdown_export_generates_chat_log(self):
+        """Test Markdown export produces a structured chat log"""
         from app.db import get_db_path
 
         db_path = await get_db_path()
         await init_database(db_path)
 
-        # This test passes if database operations work
-        # Actual HTML export implementation would be tested here
-        assert True
+        await insert_messages(
+            [
+                UnifiedMessage(
+                    id=0,
+                    source=MessageSource.WECHAT_4X,
+                    msg_svr_id=5201,
+                    local_id=201,
+                    msg_type=1,
+                    timestamp=1704067200,
+                    chat_id="user_markdown",
+                    chat_name="Markdown Chat",
+                    sender_name="Dora",
+                    content="Dora 手机 13812345678",
+                )
+            ]
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/api/export/markdown?mask_sensitive=true&mask_terms=Dora"
+            )
+
+        assert response.status_code == 200
+        assert "text/markdown" in response.headers["content-type"]
+        text = response.text
+        assert "# LifeVault Chat Export" in text
+        assert "Markdown Chat" in text
+        assert "13812345678" not in text
+        assert "Dora" not in text
+        assert "138****5678" in text
+        assert "[MASKED]" in text
+
+    async def test_html_export_generates_escaped_report(self):
+        """Test HTML export produces an escaped self-contained report"""
+        from app.db import get_db_path
+
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        await insert_messages(
+            [
+                UnifiedMessage(
+                    id=0,
+                    source=MessageSource.WECHAT_4X,
+                    msg_svr_id=5202,
+                    local_id=202,
+                    msg_type=1,
+                    timestamp=1704067200,
+                    chat_id="user_html",
+                    chat_name="HTML Chat",
+                    sender_name="Eve",
+                    content="Eve <script>alert(1)</script> 13900001111",
+                )
+            ]
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/api/export/html?mask_sensitive=true&mask_terms=Eve"
+            )
+
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        text = response.text
+        assert "<!doctype html>" in text
+        assert "LifeVault Export Report" in text
+        assert "<script>alert(1)</script>" not in text
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in text
+        assert "13900001111" not in text
+        assert "Eve" not in text
+        assert "139****1111" in text

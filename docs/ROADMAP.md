@@ -63,13 +63,13 @@ Build a **privacy-first, local-first personal data archive** that gives users co
   - [ ] Relationship analysis
 
 ### Enhanced Export
-- [ ] HTML report generation
+- [x] HTML report generation
   - [ ] Interactive timeline view
   - [ ] Word clouds and visualizations
-  - [ ] Self-contained single-file reports
-- [ ] Markdown export
-  - [ ] Structured chat logs
-  - [ ] GitHub-flavored markdown
+  - [x] Self-contained single-file reports
+- [x] Markdown export
+  - [x] Structured chat logs
+  - [x] GitHub-flavored markdown
   - [ ] Image embedding
 
 ### Data Visualization
@@ -238,5 +238,5 @@ If you have feature requests, please open an issue on GitHub.
 
 ---
 
-**Last Updated:** 2026-06-09  
+**Last Updated:** 2026-06-10  
 **Maintainers:** LifeVault Contributors

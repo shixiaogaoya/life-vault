@@ -34,7 +34,7 @@ When using LifeVault:
 - Regularly back up your `~/.lifevault/` directory to secure locations
 
 ### Data Export
-- Exported files (JSON, CSV) contain **unencrypted personal data**
+- Exported files (JSON, CSV, Markdown, HTML) contain **unencrypted personal data**
 - Use `mask_sensitive=true` when exporting data for sharing; this masks phone numbers, ID cards, emails, local file paths, and optional custom terms
 - Export masking does **not** modify the original local database
 - Store exports securely and delete them when no longer needed

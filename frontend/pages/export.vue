@@ -2,7 +2,7 @@
 const { exportMessages } = useApi()
 
 const exportOptions = ref({
-  format: 'json' as 'json' | 'csv' | 'report',
+  format: 'json' as 'json' | 'csv' | 'report' | 'markdown' | 'html',
   chat_id: '',
   date_from: '',
   date_to: '',
@@ -68,6 +68,8 @@ onBeforeUnmount(() => {
             <option value="json">JSON</option>
             <option value="csv">CSV</option>
             <option value="report">JSON 分析报告</option>
+            <option value="markdown">Markdown 聊天记录</option>
+            <option value="html">HTML 分析报告</option>
           </select>
         </div>
 

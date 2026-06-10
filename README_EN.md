@@ -9,7 +9,7 @@ LifeVault is an open-source personal archive tool for WeChat chat history, featu
 - 🔒 **Privacy First** - All data stays local, never uploaded to any server
 - 🔍 **Full-Text Search** - High-performance search powered by SQLite FTS5
 - 📊 **Statistical Analysis** - Message distribution, top chats, timeline analysis
-- 📤 **Multi-Format Export** - JSON, CSV, and more (HTML reports coming soon)
+- 📤 **Multi-Format Export** - JSON, CSV, Markdown, HTML, and analysis reports
 - 🛡️ **Masked Export** - Mask phone numbers, ID cards, emails, file paths, and custom terms before exporting
 - 🎨 **Modern Interface** - Responsive web UI built with Nuxt 3
 - 🚀 **Lightweight Deployment** - Zero complex configuration, ready out of the box
@@ -141,6 +141,8 @@ After starting the backend, visit:
 | `/api/export/json` | GET | Export as JSON |
 | `/api/export/csv` | GET | Export as CSV |
 | `/api/export/report` | GET | Export analysis report |
+| `/api/export/markdown` | GET | Export Markdown chat logs |
+| `/api/export/html` | GET | Export a self-contained HTML analysis report |
 | `/api/import` | POST | Import a LifeVault JSON file or WeChat database paths |
 
 Export endpoints support masking query parameters:
@@ -166,7 +168,7 @@ sh scripts/check.sh
 ```
 
 Current coverage:
-- ✅ 40+ test cases
+- ✅ 41+ test cases
 - ✅ API endpoint tests
 - ✅ Database operation tests
 - ✅ Data model validation tests
@@ -213,14 +215,14 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
 - [x] SQLite database + FTS5 full-text search
 - [x] RESTful API implementation
 - [x] Basic web UI
-- [x] JSON/CSV export
+- [x] JSON/CSV/Markdown/HTML/report export
 - [x] Sample data & test coverage
 
 ### v0.2.0 (Planned)
 - [x] Export masking (phone numbers, IDs, emails, custom terms)
 - [ ] Automatic name/address detection
 - [ ] RAG-powered Q&A (LLM-based)
-- [ ] More export formats (HTML reports, Markdown)
+- [x] More export formats (HTML reports, Markdown)
 - [ ] Enhanced data visualization
 - [ ] WeChat database parser
 

@@ -11,7 +11,7 @@ LifeVault 是一个开源的微信聊天记录分析工具，支持本地部署�
 - 🔒 **隐私优先** - 数据完全本地化，不上传任何服务器
 - 🔍 **全文检索** - 基于 SQLite FTS5 的高性能全文搜索
 - 📊 **统计分析** - 消息分布、热门聊天、时间线分析
-- 📤 **多格式导出** - 支持 JSON、CSV、分析报告导出
+- 📤 **多格式导出** - 支持 JSON、CSV、Markdown、HTML 和分析报告导出
 - 🛡️ **导出脱敏** - 导出前可遮蔽手机号、身份证、邮箱、文件路径和自定义词
 - 🎨 **现代化界面** - 基于 Nuxt 3 的响应式 Web UI
 - 🚀 **轻量部署** - 无需复杂配置，开箱即用
@@ -143,6 +143,8 @@ curl -X POST http://localhost:8000/api/import \
 | `/api/export/json` | GET | 导出为 JSON 格式 |
 | `/api/export/csv` | GET | 导出为 CSV 格式 |
 | `/api/export/report` | GET | 导出分析报告 |
+| `/api/export/markdown` | GET | 导出 Markdown 聊天记录 |
+| `/api/export/html` | GET | 导出自包含 HTML 分析报告 |
 | `/api/import` | POST | 导入 LifeVault JSON 文件或微信数据库路径 |
 
 导出接口支持脱敏查询参数：
@@ -168,7 +170,7 @@ sh scripts/check.sh
 ```
 
 当前测试覆盖：
-- ✅ 40+ 个测试用例
+- ✅ 41+ 个测试用例
 - ✅ API 端点测试
 - ✅ 数据库操作测试
 - ✅ 数据模型验证测试
@@ -215,14 +217,14 @@ LifeVault 使用统一的 `UnifiedMessage` 数据模型：
 - [x] SQLite 数据库 + FTS5 全文检索
 - [x] RESTful API 实现
 - [x] 基础前端界面
-- [x] JSON/CSV/报告导出功能
+- [x] JSON/CSV/Markdown/HTML/报告导出功能
 - [x] 示例数据与测试覆盖
 
 ### v0.2.0 (计划中)
 - [x] 导出脱敏功能（手机号、身份证、邮箱、自定义词）
 - [ ] 自动姓名/地址识别
 - [ ] RAG 智能问答（基于 LLM）
-- [ ] 更多导出格式（HTML 报告、Markdown）
+- [x] 更多导出格式（HTML 报告、Markdown）
 - [ ] 数据可视化增强
 - [ ] 微信数据库解析器
 

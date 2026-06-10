@@ -57,7 +57,7 @@ export const useApi = () => {
   }
 
   const buildExportUrl = (params: {
-    format: 'json' | 'csv' | 'report'
+    format: 'json' | 'csv' | 'report' | 'markdown' | 'html'
     chat_id?: string
     date_from?: string
     date_to?: string
@@ -76,7 +76,7 @@ export const useApi = () => {
   }
 
   const exportMessages = async (params: {
-    format: 'json' | 'csv' | 'report'
+    format: 'json' | 'csv' | 'report' | 'markdown' | 'html'
     chat_id?: string
     date_from?: string
     date_to?: string
@@ -87,7 +87,14 @@ export const useApi = () => {
     if (!response.ok) throw new Error(await response.text() || 'Failed to export messages')
 
     const disposition = response.headers.get('content-disposition') || ''
-    const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] || `lifevault-export.${params.format === 'csv' ? 'csv' : 'json'}`
+    const extensions = {
+      json: 'json',
+      csv: 'csv',
+      report: 'json',
+      markdown: 'md',
+      html: 'html',
+    }
+    const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] || `lifevault-export.${extensions[params.format]}`
     return {
       blob: await response.blob(),
       filename,
