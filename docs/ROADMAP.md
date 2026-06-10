@@ -39,7 +39,7 @@ Build a **privacy-first, local-first personal data archive** that gives users co
   - [x] ID cards (Chinese: `[0-9]{17}[0-9Xx]`)
   - [x] Emails and common local file paths
   - [x] Configurable custom terms for names, addresses, and other sensitive strings
-  - [ ] Automatic name and address detection
+  - [x] Automatic name and address detection (conservative rule-based matching)
 - [ ] Data anonymization for sharing
   - [ ] Replace real names with pseudonyms
   - [ ] Strip location metadata

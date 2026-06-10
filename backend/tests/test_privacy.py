@@ -39,6 +39,15 @@ def test_custom_terms_support_names_and_addresses():
     assert "139****1111" in masked
 
 
+def test_mask_text_detects_common_chinese_addresses():
+    options = PrivacyMaskingOptions(enabled=True)
+
+    masked = mask_text("收货地址：北京市海淀区中关村大街27号", options)
+
+    assert "北京市海淀区中关村大街27号" not in masked
+    assert "[ADDRESS]" in masked
+
+
 def test_mask_message_dict_masks_nested_raw_and_metadata():
     options = PrivacyMaskingOptions(enabled=True, custom_terms=("Alice",))
     message = {
@@ -56,6 +65,23 @@ def test_mask_message_dict_masks_nested_raw_and_metadata():
     assert "alice@example.com" not in str(masked)
     assert "/Users/alice" not in str(masked)
     assert masked["metadata"]["privacy_masking"]["enabled"] is True
+
+
+def test_mask_message_dict_detects_chinese_names_from_message_fields():
+    options = PrivacyMaskingOptions(enabled=True)
+    message = {
+        "content": "张三说稍后到",
+        "sender_name": "张三",
+        "chat_name": "项目群",
+        "metadata": {},
+    }
+
+    masked = mask_message_dict(message, options)
+
+    assert "张三" not in str(masked)
+    assert "项目群" in str(masked)
+    assert masked["metadata"]["privacy_masking"]["custom_term_count"] == 1
+    assert "name" in masked["metadata"]["privacy_masking"]["rules"]
 
 
 def test_parse_custom_terms_accepts_commas_and_newlines():

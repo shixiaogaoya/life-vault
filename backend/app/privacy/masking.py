@@ -1,6 +1,6 @@
 import copy
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 
@@ -11,6 +11,22 @@ ID_CARD_PATTERN = re.compile(
 EMAIL_PATTERN = re.compile(r"(?<![\w.+-])([A-Za-z0-9._%+-])([A-Za-z0-9._%+-]*)(@[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?![\w.+-])")
 PATH_PATTERN = re.compile(
     r"(?P<path>(?:[A-Za-z]:\\[^\s\"'<>|]+)|(?:/(?:Users|home|var|tmp|mnt)/[^\s\"'<>]+))"
+)
+CHINESE_ADDRESS_PATTERN = re.compile(
+    r"(?:[\u4e00-\u9fff]{2,}(?:省|自治区|市|区|县|镇|乡|街道|路|街|巷|号)){2,}"
+)
+CHINESE_NAME_PATTERN = re.compile(r"^[\u4e00-\u9fff]{2,4}$")
+NON_PERSON_NAME_MARKERS = (
+    "群",
+    "团队",
+    "系统",
+    "通知",
+    "助手",
+    "公众号",
+    "订阅号",
+    "服务号",
+    "文件",
+    "聊天",
 )
 
 
@@ -23,6 +39,8 @@ class PrivacyMaskingOptions:
     mask_id_card: bool = True
     mask_email: bool = True
     mask_paths: bool = True
+    mask_names: bool = True
+    mask_addresses: bool = True
     custom_terms: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -53,12 +71,13 @@ def mask_message_dict(message: dict[str, Any], options: PrivacyMaskingOptions) -
         return message
 
     masked = copy.deepcopy(message)
-    masked = _mask_value(masked, options)
+    effective_options = _with_detected_terms(options, _detect_terms_from_message(masked, options))
+    masked = _mask_value(masked, effective_options)
     if isinstance(masked, dict):
         metadata = masked.get("metadata")
         if not isinstance(metadata, dict):
             metadata = {}
-        metadata["privacy_masking"] = masking_summary(options)
+        metadata["privacy_masking"] = masking_summary(effective_options)
         masked["metadata"] = metadata
     return masked
 
@@ -71,6 +90,8 @@ def mask_text(text: str, options: PrivacyMaskingOptions) -> str:
     for term in sorted(options.custom_terms, key=len, reverse=True):
         masked = masked.replace(term, "[MASKED]")
 
+    if options.mask_addresses:
+        masked = CHINESE_ADDRESS_PATTERN.sub("[ADDRESS]", masked)
     if options.mask_phone:
         masked = PHONE_PATTERN.sub(_mask_phone, masked)
     if options.mask_id_card:
@@ -113,6 +134,40 @@ def _enabled_rule_names(options: PrivacyMaskingOptions) -> list[str]:
         rules.append("email")
     if options.mask_paths:
         rules.append("path")
+    if options.mask_names:
+        rules.append("name")
+    if options.mask_addresses:
+        rules.append("address")
     if options.custom_terms:
         rules.append("custom_terms")
     return rules
+
+
+def _detect_terms_from_message(
+    message: dict[str, Any], options: PrivacyMaskingOptions
+) -> tuple[str, ...]:
+    if not options.mask_names:
+        return ()
+
+    terms: list[str] = []
+    for field_name in ("sender_name", "chat_name"):
+        value = message.get(field_name)
+        if isinstance(value, str) and _looks_like_chinese_person_name(value):
+            terms.append(value)
+    return tuple(dict.fromkeys(terms))
+
+
+def _with_detected_terms(
+    options: PrivacyMaskingOptions, detected_terms: tuple[str, ...]
+) -> PrivacyMaskingOptions:
+    if not detected_terms:
+        return options
+    merged_terms = tuple(dict.fromkeys((*options.custom_terms, *detected_terms)))
+    return replace(options, custom_terms=merged_terms)
+
+
+def _looks_like_chinese_person_name(value: str) -> bool:
+    name = value.strip()
+    if not CHINESE_NAME_PATTERN.fullmatch(name):
+        return False
+    return not any(marker in name for marker in NON_PERSON_NAME_MARKERS)

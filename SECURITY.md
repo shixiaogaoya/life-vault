@@ -35,7 +35,7 @@ When using LifeVault:
 
 ### Data Export
 - Exported files (JSON, CSV, Markdown, HTML) contain **unencrypted personal data**
-- Use `mask_sensitive=true` when exporting data for sharing; this masks phone numbers, ID cards, emails, local file paths, and optional custom terms
+- Use `mask_sensitive=true` when exporting data for sharing; this masks phone numbers, ID cards, emails, local file paths, conservative Chinese name/address matches, and optional custom terms
 - Export masking does **not** modify the original local database
 - Store exports securely and delete them when no longer needed
 - Be cautious when sharing exports — they may contain sensitive information
@@ -74,7 +74,7 @@ Planned security enhancements:
 
 ### v0.2.0
 - [x] Privacy masking for exported data (phone numbers, IDs, emails, file paths, custom terms)
-- [ ] Automatic name/address detection
+- [x] Automatic name/address detection (conservative rules)
 - [ ] Data anonymization features
 - [ ] Export encryption options
 
