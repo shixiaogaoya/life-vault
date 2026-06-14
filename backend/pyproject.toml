@@ -1,6 +1,6 @@
 [project]
 name = "lifevault-backend"
-version = "0.1.0"
+version = "0.2.0"
 description = "LifeVault Backend - Personal Message Archive System"
 requires-python = ">=3.11"
 dependencies = [
@@ -10,6 +10,9 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "pydantic>=2.9.0",
     "python-dotenv>=1.0.0",
+    # httpx 用于 AI provider（OpenAI/Anthropic/Ollama）的 HTTP 调用；
+    # 这些 provider 在模块导入时即引用 httpx，因此即使是禁用 AI 的部署也必须安装。
+    "httpx>=0.27.0",
 ]
 
 [project.optional-dependencies]

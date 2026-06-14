@@ -1,3 +1,13 @@
+# LifeVault Docker Compose
+#
+# 一键启动：docker compose up --build -d
+# 启动后访问 http://<服务器IP>:3000 （本机即 http://localhost:3000）
+#
+# 说明：
+# - 前端 nginx 容器同时承担静态资源 + /api 反向代理，浏览器只需访问 3000 端口。
+# - 因此无论是本机还是远程服务器，都不需要在浏览器侧配置后端地址。
+# - 数据库保存在命名卷 lifevault-data；首次启动后需要单独导入聊天数据（见 README）。
+
 services:
   backend:
     build:
@@ -5,11 +15,19 @@ services:
       dockerfile: backend/Dockerfile
     environment:
       LIFEVAULT_DB_PATH: /data/archive.db
-      LIFEVAULT_CORS_ORIGINS: http://localhost:3000
+      # 前端经 nginx 反向代理访问后端，浏览器侧不再需要 CORS；
+      # 保留 localhost:3000 仅为开发期前后端分离直连使用。
+      LIFEVAULT_CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      # === 可选：AI 模块（默认禁用，详见 README） ===
+      # LIFEVAULT_LLM_PROVIDER: ollama
+      # LIFEVAULT_LLM_MODEL: llama3.2
+      # LIFEVAULT_EMBEDDING_PROVIDER: ollama
+      # LIFEVAULT_EMBEDDING_MODEL: nomic-embed-text
     ports:
       - "8000:8000"
     volumes:
       - lifevault-data:/data
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 10s
@@ -20,13 +38,17 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      # 留空 = 同源（推荐）：前端通过 nginx 的 /api 反向代理访问后端，
+      # 本机和远程服务器都能直接用，无需修改。
+      # 仅在前后端分域名/端口部署且不经过统一反代时才需要显式指定。
       args:
-        NUXT_PUBLIC_API_BASE: http://localhost:8000
+        NUXT_PUBLIC_API_BASE: ""
     depends_on:
       backend:
         condition: service_healthy
     ports:
       - "3000:80"
+    restart: unless-stopped
 
 volumes:
   lifevault-data:
