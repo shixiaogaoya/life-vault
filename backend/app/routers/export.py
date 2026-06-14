@@ -6,7 +6,8 @@ import os
 import re
 import shutil
 import subprocess
-from datetime import datetime
+from collections import Counter
+from datetime import datetime, timezone, timedelta
 from io import StringIO
 from typing import Any
 
@@ -25,6 +26,7 @@ from app.privacy.masking import (
     masking_summary,
     parse_custom_terms,
 )
+from app.utils.text import extract_text_tokens, is_emoji_char
 
 
 router = APIRouter(prefix="/api/export", tags=["export"])
@@ -346,6 +348,7 @@ def _build_report_payload(
                 "message_types": {},
                 "top_senders": [],
             },
+            "visualization": _empty_visualization(),
             "messages": [],
         }
 
@@ -354,6 +357,18 @@ def _build_report_payload(
     sender_distribution: dict[str, int] = {}
     earliest_timestamp = messages[0].timestamp
     latest_timestamp = messages[0].timestamp
+
+    # 可视化数据
+    tz_offset = _get_export_tz_offset()
+    tz = timezone(timedelta(hours=tz_offset))
+    heatmap = [[0] * 24 for _ in range(7)]
+    hourly = [0] * 24
+    weekday_dist = [0] * 7
+    daily_counter: dict[str, int] = {}
+    emoji_counter: Counter = Counter()
+    term_counter: Counter = Counter()
+    sent_count = 0
+    received_count = 0
 
     for msg, exported in zip(messages, exported_messages):
         # 类型统计
@@ -370,12 +385,71 @@ def _build_report_payload(
         if msg.timestamp > latest_timestamp:
             latest_timestamp = msg.timestamp
 
+        # 时区敏感的可视化数据
+        try:
+            local_dt = datetime.fromtimestamp(msg.timestamp, tz=tz)
+            iso_wday = local_dt.weekday()  # 0=Monday
+            hour = local_dt.hour
+            heatmap[iso_wday][hour] += 1
+            hourly[hour] += 1
+            weekday_dist[iso_wday] += 1
+            day_key = local_dt.strftime("%Y-%m-%d")
+            daily_counter[day_key] = daily_counter.get(day_key, 0) + 1
+        except (OSError, ValueError, OverflowError):
+            pass
+
+        # 发送/接收
+        if msg.is_sender:
+            sent_count += 1
+        else:
+            received_count += 1
+
+        # Emoji / 词频（仅文本类消息，使用导出后的内容以反映脱敏状态）
+        if msg.msg_type == 1:
+            content = str(exported.get("content") or "")
+            for ch in content:
+                if is_emoji_char(ch):
+                    emoji_counter[ch] += 1
+            for token in extract_text_tokens(content):
+                term_counter[token] += 1
+
     # Top 10 发送者
     top_senders = sorted(
         [{"name": k, "count": v} for k, v in sender_distribution.items()],
         key=lambda x: x["count"],
         reverse=True,
     )[:10]
+
+    daily_timeseries = sorted(
+        ({"date": k, "count": v} for k, v in daily_counter.items()),
+        key=lambda x: x["date"],
+    )
+
+    heatmap_max = max((max(row) for row in heatmap), default=0)
+    total_sr = sent_count + received_count
+
+    visualization = {
+        "activity_heatmap": {
+            "matrix": heatmap,
+            "max_count": heatmap_max,
+            "weekday_labels": ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+        },
+        "hourly_distribution": hourly,
+        "weekday_distribution": weekday_dist,
+        "daily_timeseries": daily_timeseries,
+        "emoji_stats": [
+            {"emoji": k, "count": v} for k, v in emoji_counter.most_common(20)
+        ],
+        "top_terms": [
+            {"term": k, "count": v} for k, v in term_counter.most_common(30)
+        ],
+        "sender_receiver_ratio": {
+            "sent": sent_count,
+            "received": received_count,
+            "sent_percentage": round(sent_count * 100.0 / total_sr, 2) if total_sr else 0.0,
+        },
+        "timezone_offset": tz_offset,
+    }
 
     return {
         "filters": filters,
@@ -390,8 +464,36 @@ def _build_report_payload(
             "message_types": type_distribution,
             "top_senders": top_senders,
         },
+        "visualization": visualization,
         "messages": exported_messages,
     }
+
+
+def _empty_visualization() -> dict[str, Any]:
+    return {
+        "activity_heatmap": {
+            "matrix": [[0] * 24 for _ in range(7)],
+            "max_count": 0,
+            "weekday_labels": ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+        },
+        "hourly_distribution": [0] * 24,
+        "weekday_distribution": [0] * 7,
+        "daily_timeseries": [],
+        "emoji_stats": [],
+        "top_terms": [],
+        "sender_receiver_ratio": {"sent": 0, "received": 0, "sent_percentage": 0.0},
+        "timezone_offset": _get_export_tz_offset(),
+    }
+
+
+def _get_export_tz_offset() -> int:
+    """获取报告用的时区偏移（与 stats API 保持一致）"""
+    raw = os.getenv("LIFEVAULT_TIMEZONE_OFFSET", "8")
+    try:
+        offset = int(raw)
+    except (TypeError, ValueError):
+        return 8
+    return offset if -12 <= offset <= 14 else 8
 
 
 def _render_markdown_export(report: dict[str, Any]) -> str:
@@ -446,6 +548,7 @@ def _render_html_export(report: dict[str, Any]) -> str:
     summary = report["summary"]
     privacy = report["privacy"]
     anonymization = report["anonymization"]
+    visualization = report.get("visualization") or _empty_visualization()
     type_rows = "\n".join(
         f"<tr><td>{html.escape(str(type_name))}</td><td>{count}</td></tr>"
         for type_name, count in summary["message_types"].items()
@@ -455,6 +558,18 @@ def _render_html_export(report: dict[str, Any]) -> str:
         for item in summary["top_senders"]
     ) or "<li>No senders</li>"
     message_items = "\n".join(_render_html_message(message) for message in report["messages"])
+
+    # 内嵌 SVG 可视化（无外网依赖）
+    hourly_svg = _render_hourly_svg(visualization["hourly_distribution"])
+    weekday_svg = _render_weekday_svg(
+        visualization["weekday_distribution"],
+        visualization["activity_heatmap"]["weekday_labels"],
+    )
+    timeline_svg = _render_timeline_svg(visualization["daily_timeseries"])
+    heatmap_html = _render_heatmap_html(visualization["activity_heatmap"])
+    emoji_html = _render_emoji_html(visualization["emoji_stats"])
+    terms_html = _render_terms_html(visualization["top_terms"])
+    sr_html = _render_sender_receiver_html(visualization["sender_receiver_ratio"])
 
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -475,18 +590,74 @@ def _render_html_export(report: dict[str, Any]) -> str:
     td, th {{ padding: 10px 12px; border-bottom: 1px solid #e5e7eb; text-align: left; }}
     pre {{ white-space: pre-wrap; word-break: break-word; background: #f3f4f6; padding: 12px; border-radius: 6px; }}
     .message {{ margin: 12px 0; }}
+    .viz-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }}
+    .viz-card {{ background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; }}
+    .viz-card.full {{ grid-column: 1 / -1; }}
+    .heatmap {{ display: grid; grid-template-columns: 60px repeat(24, 1fr); gap: 2px; font-size: 10px; }}
+    .heatmap .cell {{ aspect-ratio: 1; border-radius: 2px; }}
+    .heatmap .label {{ color: #6b7280; align-self: center; }}
+    .terms-cloud {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+    .terms-cloud span {{ display: inline-block; padding: 4px 10px; border-radius: 12px; background: #eef2ff; color: #4338ca; font-weight: 500; }}
+    .emoji-list {{ display: flex; flex-wrap: wrap; gap: 10px; }}
+    .emoji-list .item {{ display: flex; align-items: center; gap: 6px; background: #fdf2f8; padding: 4px 10px; border-radius: 10px; }}
+    .emoji-list .item span.emoji {{ font-size: 22px; }}
+    .sr-bar {{ display: flex; height: 28px; border-radius: 6px; overflow: hidden; }}
+    .sr-bar .sent {{ background: #3b82f6; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; }}
+    .sr-bar .received {{ background: #e5e7eb; color: #374151; display: flex; align-items: center; justify-content: center; font-size: 12px; }}
+    .legend {{ display: flex; gap: 4px; align-items: center; justify-content: flex-end; margin-top: 8px; font-size: 11px; color: #6b7280; }}
+    .legend .swatch {{ width: 12px; height: 12px; border-radius: 2px; }}
+    @media (max-width: 720px) {{
+      .viz-grid {{ grid-template-columns: 1fr; }}
+    }}
+    @media print {{
+      body {{ background: #fff; }}
+      .viz-card, .card, .message {{ break-inside: avoid; }}
+    }}
   </style>
 </head>
 <body>
   <main>
     <h1>LifeVault Export Report</h1>
-    <p class="muted">Generated as a self-contained local report.</p>
+    <p class="muted">Generated as a self-contained local report · UTC{visualization['timezone_offset'] >= 0 and '+' or ''}{visualization['timezone_offset']}</p>
     <section class="grid">
       <div class="card"><div class="muted">Total messages</div><div class="metric">{summary['total_messages']}</div></div>
       <div class="card"><div class="muted">Date range</div><div>{html.escape(_format_timestamp(summary['date_range']['earliest']))}<br>{html.escape(_format_timestamp(summary['date_range']['latest']))}</div></div>
       <div class="card"><div class="muted">Privacy masking</div><div>{'Enabled' if privacy['enabled'] else 'Disabled'}</div></div>
       <div class="card"><div class="muted">Sharing anonymization</div><div>{'Enabled' if anonymization['enabled'] else 'Disabled'}</div></div>
     </section>
+
+    <h2>Visualization</h2>
+    <div class="viz-grid">
+      <div class="viz-card full">
+        <h3 style="margin-top:0">Activity Heatmap</h3>
+        {heatmap_html}
+      </div>
+      <div class="viz-card">
+        <h3 style="margin-top:0">Hourly Distribution</h3>
+        {hourly_svg}
+      </div>
+      <div class="viz-card">
+        <h3 style="margin-top:0">Weekday Distribution</h3>
+        {weekday_svg}
+      </div>
+      <div class="viz-card full">
+        <h3 style="margin-top:0">Daily Timeline</h3>
+        {timeline_svg}
+      </div>
+      <div class="viz-card">
+        <h3 style="margin-top:0">Sender / Receiver</h3>
+        {sr_html}
+      </div>
+      <div class="viz-card">
+        <h3 style="margin-top:0">Top Terms</h3>
+        {terms_html}
+      </div>
+      <div class="viz-card full">
+        <h3 style="margin-top:0">Top Emoji</h3>
+        {emoji_html}
+      </div>
+    </div>
+
     <h2>Message Types</h2>
     <table><thead><tr><th>Type</th><th>Count</th></tr></thead><tbody>{type_rows}</tbody></table>
     <h2>Top Senders</h2>
@@ -496,6 +667,180 @@ def _render_html_export(report: dict[str, Any]) -> str:
   </main>
 </body>
 </html>"""
+
+
+def _heatmap_color(count: int, max_count: int) -> str:
+    if count == 0 or max_count == 0:
+        return "#f3f4f6"
+    intensity = (count / max_count) ** 0.7  # 非线性增强中间层次
+    hue = 220 - intensity * 40
+    lightness = 90 - intensity * 50
+    return f"hsl({hue:.0f}, 65%, {lightness:.0f}%)"
+
+
+def _render_heatmap_html(heatmap: dict[str, Any]) -> str:
+    matrix = heatmap["matrix"]
+    max_count = heatmap["max_count"]
+    labels = heatmap["weekday_labels"]
+
+    if max_count == 0:
+        return '<p class="muted">No data</p>'
+
+    header = '<div class="label"></div>' + ''.join(
+        f'<div class="label" style="text-align:center">{h if h % 4 == 0 else ""}</div>'
+        for h in range(24)
+    )
+    rows = []
+    for w_idx, row in enumerate(matrix):
+        cells = ''.join(
+            f'<div class="cell" style="background:{_heatmap_color(c, max_count)}" title="{labels[w_idx]} {h:02d}:00 · {c}"></div>'
+            for h, c in enumerate(row)
+        )
+        rows.append(f'<div class="label">{labels[w_idx]}</div>{cells}')
+
+    legend = (
+        '<div class="legend"><span>Less</span>'
+        + ''.join(
+            f'<div class="swatch" style="background:{_heatmap_color(int(max_count * ratio), max_count)}"></div>'
+            for ratio in (0.05, 0.25, 0.5, 0.75, 1.0)
+        )
+        + '<span>More</span></div>'
+    )
+    return f'<div class="heatmap" style="overflow-x:auto">{header}{"".join(rows)}</div>{legend}'
+
+
+def _render_hourly_svg(hourly: list[int]) -> str:
+    if not hourly or max(hourly) == 0:
+        return '<p class="muted">No data</p>'
+    max_val = max(hourly)
+    bar_width = 18
+    gap = 4
+    width = 24 * (bar_width + gap) + 40
+    height = 140
+    bars = []
+    for i, val in enumerate(hourly):
+        bar_height = (val / max_val) * (height - 40)
+        x = 30 + i * (bar_width + gap)
+        y = height - 20 - bar_height
+        bar_color = "#3b82f6" if val < max_val * 0.7 else "#1d4ed8"
+        bars.append(
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_width}" height="{bar_height:.1f}" fill="{bar_color}" rx="2">'
+            f'<title>{i:02d}:00 · {val}</title></rect>'
+        )
+    labels = ''.join(
+        f'<text x="{30 + i * (bar_width + gap) + bar_width/2:.1f}" y="{height - 6}" font-size="9" fill="#9ca3af" text-anchor="middle">{i if i % 6 == 0 else ""}</text>'
+        for i in range(24)
+    )
+    return f'<svg viewBox="0 0 {width} {height}" style="width:100%;height:auto">{"".join(bars)}{labels}</svg>'
+
+
+def _render_weekday_svg(weekday: list[int], labels: list[str]) -> str:
+    if not weekday or max(weekday) == 0:
+        return '<p class="muted">No data</p>'
+    max_val = max(weekday)
+    bar_width = 40
+    gap = 12
+    width = 7 * (bar_width + gap) + 40
+    height = 140
+    bars = []
+    for i, val in enumerate(weekday):
+        bar_height = (val / max_val) * (height - 40)
+        x = 20 + i * (bar_width + gap)
+        y = height - 20 - bar_height
+        bars.append(
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_width}" height="{bar_height:.1f}" fill="#10b981" rx="2">'
+            f'<title>{labels[i]} · {val}</title></rect>'
+        )
+        bars.append(
+            f'<text x="{x + bar_width/2:.1f}" y="{height - 6}" font-size="10" fill="#6b7280" text-anchor="middle">{labels[i]}</text>'
+        )
+    return f'<svg viewBox="0 0 {width} {height}" style="width:100%;height:auto">{"".join(bars)}</svg>'
+
+
+def _render_timeline_svg(timeseries: list[dict[str, Any]]) -> str:
+    if not timeseries:
+        return '<p class="muted">No data</p>'
+    width = 600
+    height = 120
+    padding = 12
+    max_count = max((d["count"] for d in timeseries), default=1) or 1
+    step_x = (width - padding * 2) / max(len(timeseries) - 1, 1)
+
+    points = []
+    for i, d in enumerate(timeseries):
+        x = padding + i * step_x
+        y = height - padding - (d["count"] / max_count) * (height - padding * 2)
+        points.append((x, y, d))
+
+    if not points:
+        return '<p class="muted">No data</p>'
+
+    line_path = " ".join(
+        f"{'M' if i == 0 else 'L'}{x:.2f},{y:.2f}" for i, (x, y, _) in enumerate(points)
+    )
+    area_path = (
+        f"{line_path} L{points[-1][0]:.2f},{height - padding} "
+        f"L{points[0][0]:.2f},{height - padding} Z"
+    )
+    circles = "".join(
+        f'<circle cx="{x:.2f}" cy="{y:.2f}" r="2" fill="#4f46e5"><title>{d["date"]} · {d["count"]}</title></circle>'
+        for x, y, d in points
+    )
+    first_date = timeseries[0]["date"]
+    last_date = timeseries[-1]["date"]
+    return (
+        f'<svg viewBox="0 0 {width} {height}" style="width:100%;height:auto">'
+        f'<defs><linearGradient id="area-grad" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0%" stop-color="rgba(99,102,241,0.4)" />'
+        f'<stop offset="100%" stop-color="rgba(99,102,241,0)" />'
+        f'</linearGradient></defs>'
+        f'<path d="{area_path}" fill="url(#area-grad)" />'
+        f'<path d="{line_path}" fill="none" stroke="rgb(79,70,229)" stroke-width="2" stroke-linejoin="round" />'
+        f'{circles}'
+        f'<text x="{padding}" y="12" font-size="10" fill="#9ca3af">peak {max_count}</text>'
+        f'<text x="{padding}" y="{height - 1}" font-size="10" fill="#9ca3af">{first_date}</text>'
+        f'<text x="{width - padding}" y="{height - 1}" font-size="10" fill="#9ca3af" text-anchor="end">{last_date}</text>'
+        f'</svg>'
+    )
+
+
+def _render_emoji_html(emoji_stats: list[dict[str, Any]]) -> str:
+    if not emoji_stats:
+        return '<p class="muted">No emoji detected</p>'
+    items = "".join(
+        f'<div class="item"><span class="emoji">{html.escape(item["emoji"])}</span><span>{item["count"]}</span></div>'
+        for item in emoji_stats[:20]
+    )
+    return f'<div class="emoji-list">{items}</div>'
+
+
+def _render_terms_html(top_terms: list[dict[str, Any]]) -> str:
+    if not top_terms:
+        return '<p class="muted">No terms detected</p>'
+    items = "".join(
+        f'<span>{html.escape(str(item["term"]))} <em style="opacity:0.6;font-style:normal">{item["count"]}</em></span>'
+        for item in top_terms[:30]
+    )
+    return f'<div class="terms-cloud">{items}</div>'
+
+
+def _render_sender_receiver_html(sr: dict[str, Any]) -> str:
+    sent = sr["sent"]
+    received = sr["received"]
+    total = sent + received
+    if total == 0:
+        return '<p class="muted">No data</p>'
+    sent_pct = sr["sent_percentage"]
+    received_pct = 100 - sent_pct
+    sent_label = f"Sent {sent_pct:.1f}%" if sent_pct >= 8 else ""
+    received_label = f"Received {received_pct:.1f}%" if received_pct >= 8 else ""
+    return (
+        f'<div class="sr-bar">'
+        f'<div class="sent" style="width:{sent_pct:.2f}%">{sent_label}</div>'
+        f'<div class="received" style="width:{received_pct:.2f}%">{received_label}</div>'
+        f'</div>'
+        f'<p class="muted" style="margin-top:8px">Sent {sent} · Received {received} · Total {total}</p>'
+    )
 
 
 def _render_html_message(message: dict[str, Any]) -> str:

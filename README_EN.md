@@ -55,16 +55,17 @@ LifeVault
 
 - Python 3.11 or higher
 - Node.js 18 or higher
+- Docker Desktop or Docker Engine with the Compose plugin (Docker startup only)
 - 8GB+ RAM (recommended)
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/life-vault.git
+git clone https://github.com/shixiaogaoya/life-vault.git
 cd life-vault
 ```
 
-### 2. Start the backend
+### 2. Start the backend (terminal 1)
 
 ```bash
 cd backend
@@ -74,7 +75,7 @@ python -m app.main
 
 Backend will run on `http://localhost:8000`
 
-### 3. Start the frontend
+### 3. Start the frontend (terminal 2)
 
 ```bash
 cd frontend
@@ -84,15 +85,37 @@ npm run dev
 
 Frontend will run on `http://localhost:3000`
 
-### 4. One-command Docker startup (optional)
+### 4. Local Docker startup (optional)
+
+Run this from the repository root:
 
 ```bash
 docker compose up --build
 ```
 
+This builds and starts two local containers:
+
 - Frontend: `http://localhost:3000`
 - Backend: `http://localhost:8000`
-- Database: stored in the Docker volume `lifevault-data`
+- Database: stored in the named Docker volume `lifevault-data` (the actual volume name may include the Compose project prefix)
+
+Notes:
+
+- This command starts the services; it does not import chat data automatically.
+- Ports `3000` and `8000` must be available.
+- The frontend image is built with `http://localhost:8000` as the API base, which is intended for access from your local browser.
+- Uploading a LifeVault JSON file does not require extra volume mounts.
+- If you import WeChat SQLite databases by path while running in Docker, `db_path` and `contact_db_path` must be paths visible inside the backend container. Mount the host directory into the `backend` service first, for example:
+
+```yaml
+services:
+  backend:
+    volumes:
+      - lifevault-data:/data
+      - C:/path/to/wechat:/wechat:ro
+```
+
+Then use container paths such as `/wechat/MSG.db` and `/wechat/MicroMsg.db` in the import request.
 
 ### 5. Import data
 
@@ -111,7 +134,7 @@ You can also import the sample dataset directly:
 python scripts/import_demo_data.py
 ```
 
-To import WeChat 4.x SQLite databases, submit database paths to the same endpoint:
+To import WeChat 4.x SQLite databases, submit database paths to the same endpoint. The paths must be accessible to the backend process; use host paths for local runs and mounted container paths for Docker runs:
 
 ```bash
 curl -X POST http://localhost:8000/api/import \
@@ -135,6 +158,7 @@ After starting the backend, visit:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/stats` | GET | Get statistics |
+| `/api/stats/contacts` | GET | Contact / sender activity ranking (comparison view) |
 | `/api/messages` | GET | Paginated message list |
 | `/api/messages/{id}` | GET | Get single message |
 | `/api/search` | GET | Full-text search |
@@ -213,7 +237,7 @@ Supported message types:
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
 
-### v0.1.0 (Current) ✅
+### v0.1.0 ✅
 - [x] Unified data model design
 - [x] SQLite database + FTS5 full-text search
 - [x] RESTful API implementation
@@ -221,14 +245,17 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
 - [x] JSON/CSV/Markdown/HTML/report export
 - [x] Sample data & test coverage
 
-### v0.2.0 (Planned)
+### v0.2.0 (Current) ✅
 - [x] Export masking (phone numbers, IDs, emails, custom terms)
 - [x] Automatic name/address detection (conservative rules)
 - [x] Sharing anonymization for exports
-- [ ] RAG-powered Q&A (LLM-based)
+- [x] Export encryption (password-protected JSON/CSV, GPG)
 - [x] More export formats (HTML reports, Markdown)
-- [ ] Enhanced data visualization
-- [ ] WeChat database parser
+- [x] WeChat 4.x SQLite path import
+- [x] **Data visualization dashboard** (24×7 heatmap, hourly/weekday distribution, daily timeline, term cloud, emoji stats)
+- [x] **Embedded visualizations in HTML reports** (SVG charts, fully offline)
+- [x] **AI assistant** (RAG Q&A, smart summaries; supports OpenAI / Anthropic / Ollama)
+- [x] **Vector indexing** (local SQLite vector store with cosine similarity)
 
 ### v0.3.0 (Future)
 - [ ] Electron desktop app
@@ -269,8 +296,8 @@ Special thanks to:
 
 ## 📮 Contact
 
-- Project Home: [GitHub Repository](https://github.com/yourusername/life-vault)
-- Issue Tracker: [GitHub Issues](https://github.com/yourusername/life-vault/issues)
+- Project Home: [GitHub Repository](https://github.com/shixiaogaoya/life-vault)
+- Issue Tracker: [GitHub Issues](https://github.com/shixiaogaoya/life-vault/issues)
 
 ---
 

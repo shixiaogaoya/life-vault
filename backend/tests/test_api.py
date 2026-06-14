@@ -236,3 +236,182 @@ class TestAPI:
         assert data["summary"]["total_messages"] == 1
         assert data["summary"]["message_types"]["文本"] == 1
         assert data["summary"]["top_senders"][0]["name"] == "Reporter"
+
+    async def test_visualization_stats_empty(self):
+        """Test GET /api/stats/visualization returns zeroed structure on empty DB"""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/stats/visualization")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "activity_heatmap" in data
+        assert len(data["activity_heatmap"]["matrix"]) == 7
+        assert len(data["hourly_distribution"]) == 24
+        assert len(data["weekday_distribution"]) == 7
+        assert data["daily_timeseries"] == []
+        assert data["emoji_stats"] == []
+        assert data["media_type_distribution"] == {}
+        assert data["sender_receiver_ratio"]["sent"] == 0
+
+    async def test_visualization_stats_with_messages(self):
+        """Test GET /api/stats/visualization aggregates imported messages"""
+        payload = {
+            "messages": [
+                {
+                    "id": 0,
+                    "source": MessageSource.WECHAT_4X.value,
+                    "msg_svr_id": 9201,
+                    "local_id": 1,
+                    "msg_type": 1,
+                    "timestamp": 1704067200,  # 2024-01-01 08:00 UTC+8 (Monday)
+                    "chat_id": "viz_chat",
+                    "sender_name": "Alice",
+                    "is_sender": False,
+                    "content": "Hello 😊 world",
+                    "raw": {},
+                    "metadata": {},
+                },
+                {
+                    "id": 0,
+                    "source": MessageSource.WECHAT_4X.value,
+                    "msg_svr_id": 9202,
+                    "local_id": 2,
+                    "msg_type": 1,
+                    "timestamp": 1704153600,  # 2024-01-02 08:00 UTC+8 (Tuesday)
+                    "chat_id": "viz_chat",
+                    "sender_name": "Bob",
+                    "is_sender": True,
+                    "content": "Hi 😊😊",
+                    "raw": {},
+                    "metadata": {},
+                },
+            ]
+        }
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            await client.post("/api/import", json=payload)
+            response = await client.get("/api/stats/visualization")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["activity_heatmap"]["matrix"][0][8] == 1  # Monday 08:00
+        assert data["activity_heatmap"]["matrix"][1][8] == 1  # Tuesday 08:00
+        assert data["hourly_distribution"][8] == 2
+        assert len(data["daily_timeseries"]) == 2
+
+        emoji_map = {item["emoji"]: item["count"] for item in data["emoji_stats"]}
+        assert emoji_map.get("😊") == 3
+
+        assert data["media_type_distribution"]["文本"] == 2
+        assert data["sender_receiver_ratio"]["sent"] == 1
+        assert data["sender_receiver_ratio"]["received"] == 1
+
+    async def test_visualization_stats_with_chat_filter(self):
+        """Test GET /api/stats/visualization respects chat_id filter"""
+        payload = {
+            "messages": [
+                {
+                    "id": 0,
+                    "source": MessageSource.WECHAT_4X.value,
+                    "msg_svr_id": 9300 + i,
+                    "local_id": i,
+                    "msg_type": 1,
+                    "timestamp": 1704067200 + i * 86400,
+                    "chat_id": "chat_alpha" if i % 2 == 0 else "chat_beta",
+                    "sender_name": "Alice",
+                    "content": f"Message {i}",
+                    "raw": {},
+                    "metadata": {},
+                }
+                for i in range(6)
+            ]
+        }
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            await client.post("/api/import", json=payload)
+            response = await client.get("/api/stats/visualization?chat_id=chat_alpha")
+
+        assert response.status_code == 200
+        data = response.json()
+        # chat_alpha has i=0,2,4 => 3 messages
+        total_in_heatmap = sum(sum(row) for row in data["activity_heatmap"]["matrix"])
+        assert total_in_heatmap == 3
+
+    async def test_visualization_stats_rejects_invalid_top_emoji(self):
+        """Test GET /api/stats/visualization validates top_emoji range"""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/stats/visualization?top_emoji=0")
+
+        assert response.status_code == 422  # Pydantic validation error
+
+    async def test_contact_stats_empty(self):
+        """Test GET /api/stats/contacts on empty DB returns zeroed structure"""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/stats/contacts")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_contacts"] == 0
+        assert data["total_senders"] == 0
+        assert data["top_contacts"] == []
+        assert data["top_senders"] == []
+        assert data["hourly_by_top_contacts"] == []
+
+    async def test_contact_stats_with_messages(self):
+        """Test GET /api/stats/contacts aggregates ranking correctly"""
+        from app.db import insert_messages
+        from app.models.message import UnifiedMessage
+
+        messages = [
+            UnifiedMessage(
+                id=0,
+                source=MessageSource.WECHAT_4X,
+                msg_svr_id=10000 + i,
+                local_id=i,
+                msg_type=1,
+                timestamp=1704067200 + i * 1000,
+                chat_id="chat_a" if i < 6 else "chat_b",
+                chat_name="Chat A" if i < 6 else "Chat B",
+                sender_name="Alice" if i < 6 else "Bob",
+                is_sender=i >= 6,
+                content=f"Message {i}",
+            )
+            for i in range(10)
+        ]
+        await insert_messages(messages)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/stats/contacts")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_contacts"] == 2
+        assert data["total_senders"] == 2
+        # chat_a (6) 应排在 chat_b (4) 之前
+        assert data["top_contacts"][0]["chat_id"] == "chat_a"
+        assert data["top_contacts"][0]["message_count"] == 6
+        assert data["top_contacts"][0]["chat_name"] == "Chat A"
+        # hourly_by_top_contacts 包含 2 个聊天的 24 小时分布
+        assert len(data["hourly_by_top_contacts"]) == 2
+        assert all(len(item["hourly"]) == 24 for item in data["hourly_by_top_contacts"])
+
+    async def test_contact_stats_rejects_invalid_limit(self):
+        """Test GET /api/stats/contacts validates top_contacts range"""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/stats/contacts?top_contacts=0")
+
+        assert response.status_code == 422

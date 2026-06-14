@@ -412,6 +412,96 @@ class TestExporters:
         assert "Eve" not in text
         assert "139****1111" in text
 
+    async def test_html_export_contains_visualization(self):
+        """Test HTML export embeds heatmap, SVG charts, emoji, and term cloud"""
+        from app.db import get_db_path
+
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        await insert_messages(
+            [
+                UnifiedMessage(
+                    id=0,
+                    source=MessageSource.WECHAT_4X,
+                    msg_svr_id=5210 + i,
+                    local_id=i,
+                    msg_type=1,
+                    timestamp=1704067200 + i * 3600,
+                    chat_id="user_viz",
+                    sender_name="Alice" if i % 2 else "Bob",
+                    is_sender=bool(i % 2),
+                    content=f"Hello 😀 Python msg {i}",
+                )
+                for i in range(10)
+            ]
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/export/html")
+
+        assert response.status_code == 200
+        text = response.text
+        # 可视化各组件都应出现
+        assert "Activity Heatmap" in text
+        assert "Hourly Distribution" in text
+        assert "Weekday Distribution" in text
+        assert "Daily Timeline" in text
+        assert "Sender / Receiver" in text
+        assert "Top Terms" in text
+        assert "Top Emoji" in text
+        # SVG 图表元素
+        assert "<svg" in text
+        # 热力图单元格
+        assert 'class="cell"' in text
+        # 高频词云容器
+        assert 'terms-cloud' in text
+        # Emoji 出现（emoji-list 容器）
+        assert 'emoji-list' in text
+
+    async def test_report_export_includes_visualization_payload(self):
+        """Test /api/export/report returns visualization field"""
+        from app.db import get_db_path
+
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        await insert_messages(
+            [
+                UnifiedMessage(
+                    id=0,
+                    source=MessageSource.WECHAT_4X,
+                    msg_svr_id=5301,
+                    local_id=1,
+                    msg_type=1,
+                    timestamp=1704067200,
+                    chat_id="user_rpt",
+                    sender_name="Reporter",
+                    content="Report 😀 message",
+                )
+            ]
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/export/report")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "visualization" in data
+        viz = data["visualization"]
+        assert "activity_heatmap" in viz
+        assert "hourly_distribution" in viz
+        assert "weekday_distribution" in viz
+        assert "daily_timeseries" in viz
+        assert "emoji_stats" in viz
+        assert "top_terms" in viz
+        assert "sender_receiver_ratio" in viz
+        assert viz["sender_receiver_ratio"]["received"] == 1
+
     async def test_json_export_can_anonymize_for_sharing(self):
         """Test JSON export replaces names, strips location metadata, and sanitizes paths."""
         from app.db import get_db_path

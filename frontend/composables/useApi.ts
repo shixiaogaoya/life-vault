@@ -1,4 +1,15 @@
-import type { ImportResponse, MessageListResponse, SearchResponse, StatsResponse } from '~/types/message'
+import type {
+  AIChatResponse,
+  AISummaryResponse,
+  AIStatus,
+  ContactActivityStatsResponse,
+  ImportResponse,
+  IndexStatus,
+  MessageListResponse,
+  SearchResponse,
+  StatsResponse,
+  VisualizationStatsResponse,
+} from '~/types/message'
 
 export const useApi = () => {
   const config = useRuntimeConfig()
@@ -44,6 +55,44 @@ export const useApi = () => {
     return response.json()
   }
 
+  const getVisualizationStats = async (params: {
+    chat_id?: string
+    date_from?: string
+    date_to?: string
+    top_emoji?: number
+    top_terms?: number
+  } = {}): Promise<VisualizationStatsResponse> => {
+    const query = new URLSearchParams()
+    if (params.chat_id) query.append('chat_id', params.chat_id)
+    if (params.date_from) query.append('date_from', params.date_from)
+    if (params.date_to) query.append('date_to', params.date_to)
+    if (params.top_emoji) query.append('top_emoji', params.top_emoji.toString())
+    if (params.top_terms) query.append('top_terms', params.top_terms.toString())
+
+    const response = await fetch(`${baseURL}/api/stats/visualization?${query}`)
+    if (!response.ok) throw new Error('Failed to fetch visualization stats')
+    return response.json()
+  }
+
+  const getContactActivityStats = async (params: {
+    chat_id?: string
+    date_from?: string
+    date_to?: string
+    top_contacts?: number
+    top_senders?: number
+  } = {}): Promise<ContactActivityStatsResponse> => {
+    const query = new URLSearchParams()
+    if (params.chat_id) query.append('chat_id', params.chat_id)
+    if (params.date_from) query.append('date_from', params.date_from)
+    if (params.date_to) query.append('date_to', params.date_to)
+    if (params.top_contacts) query.append('top_contacts', params.top_contacts.toString())
+    if (params.top_senders) query.append('top_senders', params.top_senders.toString())
+
+    const response = await fetch(`${baseURL}/api/stats/contacts?${query}`)
+    if (!response.ok) throw new Error('Failed to fetch contact activity stats')
+    return response.json()
+  }
+
   const importJsonFile = async (file: File): Promise<ImportResponse> => {
     const formData = new FormData()
     formData.append('file', file)
@@ -53,6 +102,61 @@ export const useApi = () => {
       body: formData,
     })
     if (!response.ok) throw new Error(await response.text() || 'Failed to import file')
+    return response.json()
+  }
+
+  const getAIStatus = async (): Promise<AIStatus> => {
+    const response = await fetch(`${baseURL}/api/ai/status`)
+    if (!response.ok) throw new Error('Failed to fetch AI status')
+    return response.json()
+  }
+
+  const aiChat = async (params: {
+    query: string
+    chat_id?: string
+    top_k?: number
+    history?: Array<{ role: string; content: string }>
+  }): Promise<AIChatResponse> => {
+    const response = await fetch(`${baseURL}/api/ai/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    })
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(text || `AI chat failed (${response.status})`)
+    }
+    return response.json()
+  }
+
+  const aiSummary = async (params: {
+    period: 'day' | 'week' | 'month'
+    chat_id?: string
+  }): Promise<AISummaryResponse> => {
+    const response = await fetch(`${baseURL}/api/ai/summary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    })
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(text || `AI summary failed (${response.status})`)
+    }
+    return response.json()
+  }
+
+  const aiIndexStart = async (): Promise<{ started: boolean; message: string }> => {
+    const response = await fetch(`${baseURL}/api/ai/index`, { method: 'POST' })
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(text || `AI index start failed (${response.status})`)
+    }
+    return response.json()
+  }
+
+  const getAIIndexStatus = async (): Promise<IndexStatus> => {
+    const response = await fetch(`${baseURL}/api/ai/index/status`)
+    if (!response.ok) throw new Error('Failed to fetch index status')
     return response.json()
   }
 
@@ -115,6 +219,13 @@ export const useApi = () => {
     getMessages,
     searchMessages,
     getStats,
+    getVisualizationStats,
+    getContactActivityStats,
+    getAIStatus,
+    aiChat,
+    aiSummary,
+    aiIndexStart,
+    getAIIndexStatus,
     importJsonFile,
     exportMessages,
   }

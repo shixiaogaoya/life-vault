@@ -11,8 +11,10 @@ LifeVault 是一个开源的微信聊天记录分析工具，支持本地部署�
 - 🔒 **隐私优先** - 数据完全本地化，不上传任何服务器
 - 🔍 **全文检索** - 基于 SQLite FTS5 的高性能全文搜索
 - 📊 **统计分析** - 消息分布、热门聊天、时间线分析
-- 📤 **多格式导出** - 支持 JSON、CSV、Markdown、HTML 和分析报告导出
+- 📈 **数据可视化** - 24×7 活动热力图、时段分布、每日趋势、词云、emoji 统计、媒体类型分布
+- 📤 **多格式导出** - 支持 JSON、CSV、Markdown、HTML（含内嵌可视化图表）和分析报告导出
 - 🛡️ **导出隐私保护** - 导出前可脱敏手机号、身份证、邮箱、文件路径，也可为分享生成匿名化导出
+- 🤖 **AI 智能助手** - 可选的 RAG 问答与摘要功能，支持 OpenAI / Anthropic / Ollama（本地）
 - 🎨 **现代化界面** - 基于 Nuxt 3 的响应式 Web UI
 - 🚀 **轻量部署** - 无需复杂配置，开箱即用
 
@@ -23,12 +25,23 @@ LifeVault
 ├── backend/        # FastAPI 后端服务
 │   ├── app/
 │   │   ├── main.py           # 应用入口
-│   │   ├── db.py             # 数据库操作
+│   │   ├── db.py             # 数据库操作 + 可视化统计聚合
 │   │   ├── models/           # 数据模型
-│   │   ├── routers/          # API 路由
+│   │   ├── routers/          # API 路由（messages/search/stats/export/ai）
 │   │   ├── adapters/         # 数据适配器
 │   │   ├── parsers/          # 数据解析器
-│   │   └── exporters/        # 导出器
+│   │   ├── exporters/        # 导出器
+│   │   ├── privacy/          # 脱敏与匿名化
+│   │   ├── ai/               # LLM/Embedding/向量存储/RAG/摘要
+│   │   │   ├── config.py     # 环境变量驱动的配置（默认禁用）
+│   │   │   ├── registry.py   # provider 工厂
+│   │   │   ├── providers/    # LLM provider (OpenAI/Anthropic/Ollama)
+│   │   │   ├── embeddings/   # Embedding provider (含本地 sentence-transformers)
+│   │   │   ├── vector_store.py  # SQLite-based 向量存储
+│   │   │   ├── indexer.py    # 增量索引构建
+│   │   │   ├── rag.py        # RAG 检索+生成
+│   │   │   └── summarizer.py # 智能摘要
+│   │   └── utils/            # 共享工具（文本/emoji 检测）
 │   └── tests/                # 单元测试
 │
 ├── frontend/       # Nuxt 3 前端应用
@@ -57,6 +70,7 @@ LifeVault
 
 - Python 3.11 或更高版本
 - Node.js 18 或更高版本
+- Docker Desktop 或 Docker Engine + Compose 插件（仅 Docker 启动需要）
 - 8GB+ 内存（推荐）
 
 ### 1. 克隆仓库
@@ -66,7 +80,7 @@ git clone https://github.com/shixiaogaoya/life-vault.git
 cd life-vault
 ```
 
-### 2. 启动后端服务
+### 2. 启动后端服务（终端 1）
 
 ```bash
 cd backend
@@ -76,7 +90,7 @@ python -m app.main
 
 后端服务将在 `http://localhost:8000` 启动
 
-### 3. 启动前端服务
+### 3. 启动前端服务（终端 2）
 
 ```bash
 cd frontend
@@ -86,15 +100,37 @@ npm run dev
 
 前端服务将在 `http://localhost:3000` 启动
 
-### 4. 一键 Docker 启动（可选）
+### 4. Docker 本机启动（可选）
+
+在仓库根目录运行：
 
 ```bash
 docker compose up --build
 ```
 
+这会构建并启动两个本机容器：
+
 - 前端：`http://localhost:3000`
 - 后端：`http://localhost:8000`
-- 数据库：保存在 Docker volume `lifevault-data`
+- 数据库：保存在 Docker 命名卷 `lifevault-data`（实际卷名可能带有 Compose 项目前缀）
+
+注意：
+
+- 这条命令只启动服务，不会自动导入聊天数据。
+- 端口 `3000` 和 `8000` 需要未被占用。
+- 前端镜像构建时会把 API 地址写为 `http://localhost:8000`，适合在本机浏览器访问。
+- 通过上传文件导入 LifeVault JSON 不需要额外挂载。
+- 如果要在 Docker 中按路径导入微信 SQLite 数据库，`db_path` 和 `contact_db_path` 必须是后端容器内可访问的路径。需要先把宿主机目录挂载到 `backend` 服务，例如：
+
+```yaml
+services:
+  backend:
+    volumes:
+      - lifevault-data:/data
+      - C:/path/to/wechat:/wechat:ro
+```
+
+然后在导入请求中使用容器内路径，例如 `/wechat/MSG.db` 和 `/wechat/MicroMsg.db`。
 
 ### 5. 导入数据
 
@@ -113,7 +149,7 @@ curl -X POST http://localhost:8000/api/import \
 python scripts/import_demo_data.py
 ```
 
-如需导入微信 4.x SQLite 数据库，可调用同一接口提交数据库路径：
+如需导入微信 4.x SQLite 数据库，可调用同一接口提交数据库路径。路径必须能被后端进程访问；本地运行时使用本机路径，Docker 运行时使用容器内挂载路径：
 
 ```bash
 curl -X POST http://localhost:8000/api/import \
@@ -137,15 +173,22 @@ curl -X POST http://localhost:8000/api/import \
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/api/stats` | GET | 获取统计信息 |
+| `/api/stats/visualization` | GET | 可视化数据（热力图、词云、emoji、媒体分布等） |
+| `/api/stats/contacts` | GET | 联系人 / 发送者活跃度对比数据（用于对比视图） |
 | `/api/messages` | GET | 分页查询消息列表 |
 | `/api/messages/{id}` | GET | 查询单条消息详情 |
 | `/api/search` | GET | 全文检索消息 |
 | `/api/export/json` | GET | 导出为 JSON 格式 |
 | `/api/export/csv` | GET | 导出为 CSV 格式 |
-| `/api/export/report` | GET | 导出分析报告 |
+| `/api/export/report` | GET | 导出分析报告（含可视化数据） |
 | `/api/export/markdown` | GET | 导出 Markdown 聊天记录 |
-| `/api/export/html` | GET | 导出自包含 HTML 分析报告 |
+| `/api/export/html` | GET | 导出自包含 HTML 分析报告（含内嵌 SVG 图表） |
 | `/api/import` | POST | 导入 LifeVault JSON 文件或微信数据库路径 |
+| `/api/ai/status` | GET | 获取 AI 模块状态 |
+| `/api/ai/chat` | POST | RAG 智能问答 |
+| `/api/ai/summary` | POST | 智能摘要（日/周/月） |
+| `/api/ai/index` | POST | 启动向量索引构建 |
+| `/api/ai/index/status` | GET | 索引构建进度 |
 
 导出接口支持隐私保护查询参数：
 
@@ -154,6 +197,73 @@ curl -X POST http://localhost:8000/api/import \
 - `anonymize=true`：为分享场景生成匿名化导出，将联系人和聊天替换为 `Person N` / `Chat N`，移除位置消息和位置元数据，并清理本地文件路径
 - `encrypt_password=强密码`：为 JSON/CSV 导出生成密码保护的 `.lvenc` 文件
 - `gpg_recipient=alice@example.com`：使用本机 GPG 公钥为 JSON/CSV 导出生成 `.json.gpg` 或 `.csv.gpg` 文件
+
+## 🤖 AI 功能配置（可选）
+
+LifeVault 的 AI 功能（RAG 问答、智能摘要）默认**禁用**，必须显式配置环境变量后才会启用。所有配置通过 `LIFEVAULT_*` 前缀的环境变量完成。
+
+### 模式 1：本地 Ollama（推荐，隐私优先）
+
+适合希望在完全本地化的环境中获得 AI 能力的用户。
+
+```bash
+# 安装并启动 Ollama（参考 https://ollama.com）
+ollama pull llama3.2
+ollama pull nomic-embed-text
+ollama serve  # 默认监听 11434 端口
+
+# 配置 LifeVault
+export LIFEVAULT_LLM_PROVIDER=ollama
+export LIFEVAULT_LLM_MODEL=llama3.2
+export LIFEVAULT_EMBEDDING_PROVIDER=ollama
+export LIFEVAULT_EMBEDDING_MODEL=nomic-embed-text
+```
+
+数据完全保留在本地，**不会发送到任何外部服务**。
+
+### 模式 2：OpenAI / DeepSeek / Moonshot 等兼容服务
+
+```bash
+export LIFEVAULT_LLM_PROVIDER=openai
+export LIFEVAULT_LLM_MODEL=gpt-4o-mini
+export LIFEVAULT_LLM_API_KEY=sk-...
+# 可选：自定义 base URL（用于 DeepSeek 等兼容服务）
+# export LIFEVAULT_LLM_BASE_URL=https://api.deepseek.com/v1
+
+export LIFEVAULT_EMBEDDING_PROVIDER=openai
+export LIFEVAULT_EMBEDDING_MODEL=text-embedding-3-small
+export LIFEVAULT_EMBEDDING_API_KEY=sk-...
+```
+
+> ⚠️ 此模式下，被提问的聊天片段会发送到云端 LLM。前端会显示明确警告。
+
+### 模式 3：Anthropic Claude
+
+```bash
+export LIFEVAULT_LLM_PROVIDER=anthropic
+export LIFEVAULT_LLM_MODEL=claude-sonnet-4-6
+export LIFEVAULT_LLM_API_KEY=sk-ant-...
+```
+
+### 完整环境变量参考
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `LIFEVAULT_LLM_PROVIDER` | `disabled` | LLM 提供方：`disabled` / `openai` / `anthropic` / `ollama` |
+| `LIFEVAULT_LLM_MODEL` | 空 | 模型名（如 `gpt-4o-mini`、`llama3.2`） |
+| `LIFEVAULT_LLM_API_KEY` | 空 | API Key（Ollama 不需要） |
+| `LIFEVAULT_LLM_BASE_URL` | provider 默认 | 自定义 API 端点 |
+| `LIFEVAULT_LLM_MAX_TOKENS` | `1024` | 最大生成 token 数 |
+| `LIFEVAULT_LLM_TEMPERATURE` | `0.7` | 采样温度 |
+| `LIFEVAULT_EMBEDDING_PROVIDER` | `disabled` | Embedding 提供方：`disabled` / `openai` / `ollama` / `local` |
+| `LIFEVAULT_EMBEDDING_MODEL` | 空 | Embedding 模型名 |
+| `LIFEVAULT_EMBEDDING_API_KEY` | 空 | Embedding API Key |
+| `LIFEVAULT_EMBEDDING_DIMENSIONS` | `768` | 向量维度（需与模型一致） |
+| `LIFEVAULT_VECTOR_DB_PATH` | `~/.lifevault/vectors.db` | 向量库文件路径 |
+| `LIFEVAULT_TIMEZONE_OFFSET` | `8` | 时区偏移（小时），影响热力图和摘要的时间归集 |
+| `LIFEVAULT_AI_TIMEOUT` | `60` | AI 请求超时（秒） |
+
+启用后访问 `http://localhost:3000/ai-chat` 即可使用 AI 助手。
 
 ## 🧪 运行测试
 
@@ -215,7 +325,7 @@ LifeVault 使用统一的 `UnifiedMessage` 数据模型：
 
 完整路线图请查看 [docs/ROADMAP.md](docs/ROADMAP.md)
 
-### v0.1.0 (当前版本) ✅
+### v0.1.0 ✅
 - [x] 统一数据模型设计
 - [x] SQLite 数据库 + FTS5 全文检索
 - [x] RESTful API 实现
@@ -223,13 +333,17 @@ LifeVault 使用统一的 `UnifiedMessage` 数据模型：
 - [x] JSON/CSV/Markdown/HTML/报告导出功能
 - [x] 示例数据与测试覆盖
 
-### v0.2.0 (计划中)
+### v0.2.0 (当前版本) ✅
 - [x] 导出脱敏功能（手机号、身份证、邮箱、自定义词）
 - [x] 自动姓名/地址识别（保守规则）
-- [ ] RAG 智能问答（基于 LLM）
+- [x] 分享匿名化导出
+- [x] 导出加密（密码保护 JSON/CSV、GPG）
 - [x] 更多导出格式（HTML 报告、Markdown）
-- [ ] 数据可视化增强
-- [ ] 微信数据库解析器
+- [x] 微信 4.x SQLite 数据库路径导入
+- [x] **数据可视化仪表板**（24×7 热力图、时段分布、每日趋势、词云、emoji 统计）
+- [x] **HTML 报告内嵌可视化**（SVG 图表，离线可看）
+- [x] **AI 智能助手**（RAG 问答、智能摘要，支持 OpenAI/Anthropic/Ollama）
+- [x] **向量索引**（本地 SQLite 向量库，cosine similarity 检索）
 
 ### v0.3.0 (未来)
 - [ ] Electron 桌面应用

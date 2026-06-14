@@ -1,5 +1,6 @@
 import json
 import os
+from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any, AsyncIterator
 import aiosqlite
 
 from app.models.message import UnifiedMessage
+from app.utils.text import extract_text_tokens, is_emoji_char
 
 
 DEFAULT_DB_PATH = "~/.lifevault/archive.db"
@@ -322,6 +324,376 @@ async def get_stats() -> dict[str, Any]:
             }
             for row in top_chat_rows
         ],
+    }
+
+
+def _get_tz_offset() -> int:
+    """获取时区偏移（小时），默认 +8（中国时区），可通过环境变量配置"""
+    raw = os.getenv("LIFEVAULT_TIMEZONE_OFFSET", "8")
+    try:
+        offset = int(raw)
+    except (TypeError, ValueError):
+        return 8
+    # 允许 -12 ~ +14 的有效时区范围
+    if -12 <= offset <= 14:
+        return offset
+    return 8
+
+
+def _tz_modifier(tz_offset: int) -> str:
+    """构造 SQLite strftime 用的时区修饰符（如 '+8 hours' 或 '-5 hours'）"""
+    sign = "+" if tz_offset >= 0 else "-"
+    return f"{sign}{abs(tz_offset)} hours"
+
+
+def _get_type_name_for_stats(msg_type: int, sub_type: int = 0) -> str:
+    """统计用的消息类型名称（独立于 export.py，避免反向依赖）"""
+    if msg_type == 49:
+        return {
+            3: "音乐", 5: "链接", 6: "文件", 19: "合并转发",
+            33: "小程序", 51: "视频号", 57: "引用消息", 2000: "转账",
+        }.get(sub_type, f"应用消息({sub_type})")
+    return {
+        1: "文本", 3: "图片", 34: "语音", 42: "名片",
+        43: "视频", 47: "表情包", 48: "位置",
+        50: "音视频通话", 66: "OpenIM名片", 10000: "系统消息",
+    }.get(msg_type, f"未知({msg_type})")
+
+
+async def get_visualization_stats(
+    filters: dict[str, Any] | None = None,
+    top_emoji_limit: int = 20,
+    top_terms_limit: int = 30,
+) -> dict[str, Any]:
+    """获取可视化统计数据
+
+    返回：
+    - activity_heatmap: 7x24 矩阵 [weekday][hour]，weekday 0=Monday..6=Sunday
+    - hourly_distribution: 24 个时段的消息数
+    - weekday_distribution: 7 天（周一~周日）的消息数
+    - daily_timeseries: 按天的 [{date, count}, ...] 时序数据（最多 365 天）
+    - emoji_stats: Top N emoji 列表
+    - top_terms: Top N 高频词
+    - media_type_distribution: 媒体类型分布
+    - sender_receiver_ratio: {sent, received}
+    """
+    tz_offset = _get_tz_offset()
+    tz_modifier = _tz_modifier(tz_offset)
+    where_sql, params = _build_message_filters(filters)
+
+    async with _connect() as db:
+        # 24x7 热力图：weekday (0=Monday) 和 hour
+        cursor = await db.execute(
+            f"""
+            SELECT
+                CAST(strftime('%w', timestamp, 'unixepoch', '{tz_modifier}') AS INTEGER) AS sqlite_wday,
+                CAST(strftime('%H', timestamp, 'unixepoch', '{tz_modifier}') AS INTEGER) AS hour,
+                COUNT(*) AS cnt
+            FROM unified_messages
+            {where_sql}
+            GROUP BY sqlite_wday, hour
+            """.strip(),
+            params,
+        )
+        heatmap_rows = await cursor.fetchall()
+        await cursor.close()
+
+        # 按天时序数据
+        cursor = await db.execute(
+            f"""
+            SELECT
+                strftime('%Y-%m-%d', timestamp, 'unixepoch', '{tz_modifier}') AS day,
+                COUNT(*) AS cnt
+            FROM unified_messages
+            {where_sql}
+            GROUP BY day
+            ORDER BY day ASC
+            LIMIT 366
+            """.strip(),
+            params,
+        )
+        daily_rows = await cursor.fetchall()
+        await cursor.close()
+
+        # 媒体类型分布
+        cursor = await db.execute(
+            f"""
+            SELECT msg_type, sub_type, COUNT(*) AS cnt
+            FROM unified_messages
+            {where_sql}
+            GROUP BY msg_type, sub_type
+            ORDER BY cnt DESC
+            """.strip(),
+            params,
+        )
+        type_rows = await cursor.fetchall()
+        await cursor.close()
+
+        # 发送/接收比例
+        cursor = await db.execute(
+            f"""
+            SELECT
+                SUM(CASE WHEN is_sender = 1 THEN 1 ELSE 0 END) AS sent,
+                SUM(CASE WHEN is_sender = 0 THEN 1 ELSE 0 END) AS received
+            FROM unified_messages
+            {where_sql}
+            """.strip(),
+            params,
+        )
+        sr_row = await cursor.fetchone()
+        await cursor.close()
+
+        # 拉取文本内容用于 emoji/词频统计（仅文本类消息，避免图片/语音的空内容）
+        text_filters = {"msg_type": 1}
+        if filters:
+            for key in ("chat_id", "source", "date_from", "date_to"):
+                if filters.get(key) is not None:
+                    text_filters[key] = filters[key]
+        text_where, text_params = _build_message_filters(text_filters)
+        cursor = await db.execute(
+            f"""
+            SELECT content
+            FROM unified_messages
+            {text_where}
+            ORDER BY timestamp DESC
+            LIMIT 50000
+            """.strip(),
+            text_params,
+        )
+        text_rows = await cursor.fetchall()
+        await cursor.close()
+
+    # SQLite %w 返回 0=Sunday..6=Saturday，转换为 0=Monday..6=Sunday
+    def _to_iso_weekday(sqlite_wday: int) -> int:
+        # SQLite: 0=Sunday,1=Monday,...,6=Saturday
+        # ISO:    0=Monday,...,5=Saturday,6=Sunday
+        if sqlite_wday == 0:
+            return 6  # Sunday -> 6
+        return sqlite_wday - 1
+
+    heatmap = [[0] * 24 for _ in range(7)]
+    hourly = [0] * 24
+    weekday = [0] * 7
+    heatmap_max = 0
+    for row in heatmap_rows:
+        iso_wday = _to_iso_weekday(row["sqlite_wday"])
+        hour = int(row["hour"])
+        cnt = int(row["cnt"])
+        heatmap[iso_wday][hour] = cnt
+        hourly[hour] += cnt
+        weekday[iso_wday] += cnt
+        if cnt > heatmap_max:
+            heatmap_max = cnt
+
+    daily_timeseries = [
+        {"date": row["day"], "count": int(row["cnt"])}
+        for row in daily_rows
+        if row["day"]
+    ]
+
+    media_distribution: dict[str, int] = {}
+    for row in type_rows:
+        name = _get_type_name_for_stats(int(row["msg_type"]), int(row["sub_type"] or 0))
+        media_distribution[name] = media_distribution.get(name, 0) + int(row["cnt"])
+
+    # Emoji 统计 & 词频统计（在 Python 端聚合，避免 SQLite regex 限制）
+    emoji_counter: Counter = Counter()
+    term_counter: Counter = Counter()
+    for row in text_rows:
+        content = row["content"] or ""
+        for ch in content:
+            if is_emoji_char(ch):
+                emoji_counter[ch] += 1
+        for token in extract_text_tokens(content):
+            term_counter[token] += 1
+
+    emoji_stats = [
+        {"emoji": emoji, "count": cnt}
+        for emoji, cnt in emoji_counter.most_common(top_emoji_limit)
+    ]
+    top_terms = [
+        {"term": term, "count": cnt}
+        for term, cnt in term_counter.most_common(top_terms_limit)
+    ]
+
+    sent = int(sr_row["sent"] or 0) if sr_row else 0
+    received = int(sr_row["received"] or 0) if sr_row else 0
+
+    return {
+        "activity_heatmap": {
+            "matrix": heatmap,
+            "max_count": heatmap_max,
+            "weekday_labels": ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+            "hour_labels": [f"{h:02d}" for h in range(24)],
+        },
+        "hourly_distribution": hourly,
+        "weekday_distribution": weekday,
+        "daily_timeseries": daily_timeseries,
+        "emoji_stats": emoji_stats,
+        "top_terms": top_terms,
+        "media_type_distribution": media_distribution,
+        "sender_receiver_ratio": {
+            "sent": sent,
+            "received": received,
+            "sent_percentage": round(sent * 100.0 / (sent + received), 2) if (sent + received) > 0 else 0.0,
+        },
+        "timezone_offset": tz_offset,
+    }
+
+
+async def get_contact_activity_stats(
+    filters: dict[str, Any] | None = None,
+    *,
+    top_contacts_limit: int = 20,
+    top_senders_limit: int = 20,
+) -> dict[str, Any]:
+    """获取联系人 / 发送者活跃度对比数据（用于"对比视图"仪表板）
+
+    返回：
+    - total_contacts: 不重复的 chat_id 数量
+    - total_senders: 不重复的 sender_name 数量
+    - top_contacts: 按消息数排序的聊天列表 [{chat_id, chat_name, message_count, first_seen, last_seen, sent, received, media_count, text_count}]
+    - top_senders: 按消息数排序的发送者列表 [{sender_name, message_count, sent, received, distinct_chats}]
+    - hourly_by_top_contacts: 前若干个聊天在 24 小时上的活跃度分布 [{chat_id, chat_name, hourly: [24]}]
+    """
+    tz_offset = _get_tz_offset()
+    tz_modifier = _tz_modifier(tz_offset)
+    where_sql, params = _build_message_filters(filters)
+
+    async with _connect() as db:
+        # 聊天活跃度（按消息数排序）
+        cursor = await db.execute(
+            f"""
+            SELECT
+                chat_id,
+                COALESCE(NULLIF(chat_name, ''), chat_id) AS chat_name,
+                COUNT(*) AS message_count,
+                MIN(timestamp) AS first_seen,
+                MAX(timestamp) AS last_seen,
+                SUM(CASE WHEN is_sender = 1 THEN 1 ELSE 0 END) AS sent,
+                SUM(CASE WHEN is_sender = 0 THEN 1 ELSE 0 END) AS received,
+                SUM(CASE WHEN msg_type = 1 THEN 1 ELSE 0 END) AS text_count,
+                SUM(CASE WHEN msg_type != 1 THEN 1 ELSE 0 END) AS media_count
+            FROM unified_messages
+            {where_sql}
+            GROUP BY chat_id, chat_name
+            ORDER BY message_count DESC, last_seen DESC
+            LIMIT ?
+            """.strip(),
+            (*params, top_contacts_limit),
+        )
+        contact_rows = await cursor.fetchall()
+        await cursor.close()
+
+        # 发送者活跃度
+        sender_clause = where_sql or "WHERE sender_name != ''"
+        # 上面的 where_sql 可能为空字符串；这里需要单独处理"过滤掉空 sender_name"
+        if where_sql:
+            sender_where = f"{where_sql} AND sender_name != ''"
+        else:
+            sender_where = "WHERE sender_name != ''"
+        cursor = await db.execute(
+            f"""
+            SELECT
+                sender_name,
+                COUNT(*) AS message_count,
+                SUM(CASE WHEN is_sender = 1 THEN 1 ELSE 0 END) AS sent,
+                SUM(CASE WHEN is_sender = 0 THEN 1 ELSE 0 END) AS received,
+                COUNT(DISTINCT chat_id) AS distinct_chats
+            FROM unified_messages
+            {sender_where}
+            GROUP BY sender_name
+            ORDER BY message_count DESC
+            LIMIT ?
+            """.strip(),
+            (*params, top_senders_limit),
+        )
+        sender_rows = await cursor.fetchall()
+        await cursor.close()
+
+        # 总计（不受 LIMIT 影响）
+        cursor = await db.execute(
+            f"""
+            SELECT
+                COUNT(DISTINCT chat_id) AS total_contacts,
+                COUNT(DISTINCT CASE WHEN sender_name != '' THEN sender_name END) AS total_senders
+            FROM unified_messages
+            {where_sql}
+            """.strip(),
+            params,
+        )
+        totals_row = await cursor.fetchone()
+        await cursor.close()
+
+        # 前 N 个聊天的小时分布（用于雷达/堆叠对比图）
+        top_chat_ids = [row["chat_id"] for row in contact_rows[: min(top_contacts_limit, 5)]]
+        hourly_by_contacts: list[dict[str, Any]] = []
+        if top_chat_ids:
+            placeholders = ",".join("?" for _ in top_chat_ids)
+            cursor = await db.execute(
+                f"""
+                SELECT
+                    chat_id,
+                    COALESCE(NULLIF(chat_name, ''), chat_id) AS chat_name,
+                    CAST(strftime('%H', timestamp, 'unixepoch', '{tz_modifier}') AS INTEGER) AS hour,
+                    COUNT(*) AS cnt
+                FROM unified_messages
+                {where_sql} {'AND' if where_sql else 'WHERE'} chat_id IN ({placeholders})
+                GROUP BY chat_id, hour
+                """.strip(),
+                (*params, *top_chat_ids),
+            )
+            hour_rows = await cursor.fetchall()
+            await cursor.close()
+
+            # 索引化以便快速填充
+            index: dict[str, dict[str, Any]] = {
+                cid: {"chat_id": cid, "chat_name": "", "hourly": [0] * 24}
+                for cid in top_chat_ids
+            }
+            # 用 contact_rows 的 chat_name 填充（保证顺序与名称一致）
+            name_map = {row["chat_id"]: row["chat_name"] for row in contact_rows}
+            for cid in top_chat_ids:
+                index[cid]["chat_name"] = name_map.get(cid, cid)
+            for row in hour_rows:
+                cid = row["chat_id"]
+                if cid in index:
+                    index[cid]["hourly"][int(row["hour"])] = int(row["cnt"])
+            # 按 top_chat_ids 顺序输出
+            hourly_by_contacts = [index[cid] for cid in top_chat_ids]
+
+    top_contacts = [
+        {
+            "chat_id": row["chat_id"],
+            "chat_name": row["chat_name"],
+            "message_count": int(row["message_count"]),
+            "first_seen": int(row["first_seen"]) if row["first_seen"] else None,
+            "last_seen": int(row["last_seen"]) if row["last_seen"] else None,
+            "sent": int(row["sent"] or 0),
+            "received": int(row["received"] or 0),
+            "text_count": int(row["text_count"] or 0),
+            "media_count": int(row["media_count"] or 0),
+        }
+        for row in contact_rows
+    ]
+
+    top_senders = [
+        {
+            "sender_name": row["sender_name"],
+            "message_count": int(row["message_count"]),
+            "sent": int(row["sent"] or 0),
+            "received": int(row["received"] or 0),
+            "distinct_chats": int(row["distinct_chats"] or 0),
+        }
+        for row in sender_rows
+    ]
+
+    return {
+        "total_contacts": int(totals_row["total_contacts"] or 0) if totals_row else 0,
+        "total_senders": int(totals_row["total_senders"] or 0) if totals_row else 0,
+        "top_contacts": top_contacts,
+        "top_senders": top_senders,
+        "hourly_by_top_contacts": hourly_by_contacts,
     }
 
 

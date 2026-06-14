@@ -29,7 +29,7 @@ Build a **privacy-first, local-first personal data archive** that gives users co
 
 ---
 
-## v0.2.0 - Privacy & Intelligence 🚧 (Q3 2026)
+## v0.2.0 - Privacy & Intelligence ✅ (Released 2026-06-13)
 
 **Goal:** Add privacy features and AI-powered analysis
 
@@ -49,23 +49,23 @@ Build a **privacy-first, local-first personal data archive** that gives users co
   - [x] GPG-encrypted exports
 
 ### AI-Powered Features
-- [ ] RAG (Retrieval-Augmented Generation) chat
-  - [ ] Ask questions about your chat history
-  - [ ] Semantic search using embeddings
-  - [ ] Multi-turn conversations with context
-- [ ] LLM integration
-  - [ ] Support OpenAI, Anthropic, local LLMs
-  - [ ] Configurable API endpoints
-  - [ ] Privacy-aware mode (local LLM only)
-- [ ] Smart summaries
-  - [ ] Daily/weekly chat summaries
+- [x] RAG (Retrieval-Augmented Generation) chat
+  - [x] Ask questions about your chat history
+  - [x] Semantic search using embeddings
+  - [x] Multi-turn conversations with context
+- [x] LLM integration
+  - [x] Support OpenAI, Anthropic, local LLMs (Ollama)
+  - [x] Configurable API endpoints
+  - [x] Privacy-aware mode (local LLM only)
+- [x] Smart summaries
+  - [x] Daily/weekly/monthly chat summaries
   - [ ] Topic clustering
   - [ ] Relationship analysis
 
 ### Enhanced Export
 - [x] HTML report generation
-  - [ ] Interactive timeline view
-  - [ ] Word clouds and visualizations
+  - [x] Interactive timeline view
+  - [x] Word clouds and visualizations (SVG)
   - [x] Self-contained single-file reports
 - [x] Markdown export
   - [x] Structured chat logs
@@ -73,14 +73,14 @@ Build a **privacy-first, local-first personal data archive** that gives users co
   - [ ] Image embedding
 
 ### Data Visualization
-- [ ] Enhanced charts
-  - [ ] Message heatmaps (time-of-day patterns)
-  - [ ] Emoji usage analytics
-  - [ ] Media type distribution
-- [ ] Interactive dashboards
-  - [ ] Drill-down by contact/group
-  - [ ] Time range filtering
-  - [ ] Comparison views
+- [x] Enhanced charts
+  - [x] Message heatmaps (time-of-day patterns)
+  - [x] Emoji usage analytics
+  - [x] Media type distribution
+- [x] Interactive dashboards
+  - [x] Drill-down by contact/group
+  - [x] Time range filtering
+  - [x] Comparison views
 
 ---
 
@@ -238,5 +238,5 @@ If you have feature requests, please open an issue on GitHub.
 
 ---
 
-**Last Updated:** 2026-06-10  
+**Last Updated:** 2026-06-14  
 **Maintainers:** LifeVault Contributors

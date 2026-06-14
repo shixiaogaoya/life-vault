@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import get_db_path, init_database
-from app.routers import export, import_router, messages, search, stats
+from app.routers import ai, export, import_router, messages, search, stats
 
 
 @asynccontextmanager
@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="LifeVault API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="LifeVault API", version="0.2.0", lifespan=lifespan)
 
 
 def _cors_origins() -> list[str]:
@@ -38,6 +38,7 @@ app.include_router(search.router)
 app.include_router(stats.router)
 app.include_router(export.router)
 app.include_router(import_router.router)
+app.include_router(ai.router)
 
 
 @app.get("/health")
