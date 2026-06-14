@@ -8,7 +8,7 @@ LifeVault is an open-source personal archive tool for WeChat chat history, featu
 
 - 🔒 **Privacy First** - All data stays local, never uploaded to any server
 - 🔍 **Full-Text Search** - High-performance search powered by SQLite FTS5
-- 📊 **Statistical Analysis** - Message distribution, top chats, timeline, contact activity comparison
+- 📊 **Statistical Analysis** - Message distribution, top chats, timeline, contact activity comparison, relationship graph
 - 📈 **Data Visualization** - 24×7 activity heatmap, hourly distribution, daily trends, term cloud, emoji stats, media type distribution
 - 📤 **Multi-Format Export** - JSON, CSV, Markdown, HTML (with embedded charts), and analysis reports
 - 🛡️ **Private Export** - Mask identifiers before exporting, or generate anonymized exports for sharing
@@ -279,6 +279,7 @@ After starting the backend, visit:
 | `/api/stats` | GET | Get statistics |
 | `/api/stats/visualization` | GET | Visualization data (heatmap, term cloud, emoji, media distribution) |
 | `/api/stats/contacts` | GET | Contact / sender activity ranking (comparison view) |
+| `/api/stats/relationships` | GET | Relationship analysis (sender network, shared chats, strength) |
 | `/api/messages` | GET | Paginated message list |
 | `/api/messages/{id}` | GET | Get single message |
 | `/api/search` | GET | Full-text search |
@@ -405,6 +406,7 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
 - HTML report / Markdown export / WeChat 4.x SQLite path import
 - **Data visualization dashboard** (heatmap, hourly distribution, daily trends, term cloud, emoji, media distribution)
 - **Contact activity comparison view** (chat / sender ranking, hourly stacked comparison)
+- **Relationship graph** (sender network based on shared chats, strength ranking)
 - **AI assistant** (RAG Q&A, smart summaries; supports OpenAI / Anthropic / Ollama)
 - **Vector indexing** (local SQLite vector store, cosine similarity)
 

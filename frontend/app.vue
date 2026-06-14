@@ -6,6 +6,7 @@
         <div class="flex items-center gap-4 text-sm">
           <NuxtLink to="/" class="text-gray-600 hover:text-blue-600">消息</NuxtLink>
           <NuxtLink to="/dashboard" class="text-gray-600 hover:text-blue-600">仪表板</NuxtLink>
+          <NuxtLink to="/relationships" class="text-gray-600 hover:text-blue-600">关系图谱</NuxtLink>
           <NuxtLink to="/search" class="text-gray-600 hover:text-blue-600">搜索</NuxtLink>
           <NuxtLink to="/ai-chat" class="text-gray-600 hover:text-blue-600">AI 助手</NuxtLink>
           <NuxtLink to="/import" class="text-gray-600 hover:text-blue-600">导入</NuxtLink>

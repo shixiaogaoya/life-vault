@@ -6,6 +6,7 @@ import type {
   ImportResponse,
   IndexStatus,
   MessageListResponse,
+  RelationshipAnalysisResponse,
   SearchResponse,
   StatsResponse,
   VisualizationStatsResponse,
@@ -90,6 +91,25 @@ export const useApi = () => {
 
     const response = await fetch(`${baseURL}/api/stats/contacts?${query}`)
     if (!response.ok) throw new Error('Failed to fetch contact activity stats')
+    return response.json()
+  }
+
+  const getRelationshipAnalysis = async (params: {
+    chat_id?: string
+    date_from?: string
+    date_to?: string
+    top_pairs?: number
+    top_senders?: number
+  } = {}): Promise<RelationshipAnalysisResponse> => {
+    const query = new URLSearchParams()
+    if (params.chat_id) query.append('chat_id', params.chat_id)
+    if (params.date_from) query.append('date_from', params.date_from)
+    if (params.date_to) query.append('date_to', params.date_to)
+    if (params.top_pairs) query.append('top_pairs', params.top_pairs.toString())
+    if (params.top_senders) query.append('top_senders', params.top_senders.toString())
+
+    const response = await fetch(`${baseURL}/api/stats/relationships?${query}`)
+    if (!response.ok) throw new Error('Failed to fetch relationship analysis')
     return response.json()
   }
 
@@ -221,6 +241,7 @@ export const useApi = () => {
     getStats,
     getVisualizationStats,
     getContactActivityStats,
+    getRelationshipAnalysis,
     getAIStatus,
     aiChat,
     aiSummary,

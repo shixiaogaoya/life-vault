@@ -415,3 +415,60 @@ class TestAPI:
             response = await client.get("/api/stats/contacts?top_contacts=0")
 
         assert response.status_code == 422
+
+    async def test_relationships_empty(self):
+        """Test GET /api/stats/relationships on empty DB returns zeroed structure"""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/stats/relationships")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_senders"] == 0
+        assert data["total_group_chats"] == 0
+        assert data["top_pairs"] == []
+        assert data["sender_nodes"] == []
+        assert data["edges"] == []
+
+    async def test_relationships_with_shared_chat(self):
+        """Test GET /api/stats/relationships detects co-participation"""
+        from app.db import insert_messages
+        from app.models.message import UnifiedMessage
+
+        messages = [
+            UnifiedMessage(
+                id=0, source=MessageSource.WECHAT_4X, msg_svr_id=50001,
+                local_id=1, msg_type=1, timestamp=1704067200,
+                chat_id="group", sender_name="Alice", content="hi",
+            ),
+            UnifiedMessage(
+                id=0, source=MessageSource.WECHAT_4X, msg_svr_id=50002,
+                local_id=2, msg_type=1, timestamp=1704067300,
+                chat_id="group", sender_name="Bob", content="hello",
+            ),
+        ]
+        await insert_messages(messages)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/stats/relationships")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_senders"] == 2
+        assert data["total_group_chats"] == 1
+        assert len(data["top_pairs"]) == 1
+        pair = data["top_pairs"][0]
+        assert {pair["a"], pair["b"]} == {"Alice", "Bob"}
+        assert pair["shared_chats"] == 1
+
+    async def test_relationships_rejects_invalid_limit(self):
+        """Test GET /api/stats/relationships validates top_pairs range"""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/stats/relationships?top_pairs=0")
+
+        assert response.status_code == 422

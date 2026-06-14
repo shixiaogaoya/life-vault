@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.db import get_contact_activity_stats
+from app.db import get_relationship_analysis
 from app.db import get_stats as get_db_stats
 from app.db import get_visualization_stats
 
@@ -90,6 +91,39 @@ async def get_contact_stats(
         return await get_contact_activity_stats(
             filters=filters,
             top_contacts_limit=top_contacts,
+            top_senders_limit=top_senders,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="internal server error") from exc
+
+
+@router.get("/stats/relationships")
+async def get_relationships(
+    chat_id: str | None = Query(None, description="按聊天 ID 过滤"),
+    date_from: str | None = Query(None, description="起始日期（ISO 8601 或 epoch 秒）"),
+    date_to: str | None = Query(None, description="结束日期（ISO 8601 或 epoch 秒）"),
+    top_pairs: int = Query(20, ge=1, le=100, description="返回的关系对数量"),
+    top_senders: int = Query(15, ge=1, le=100, description="参与图谱的发送者上限"),
+) -> dict[str, Any]:
+    """关系分析：基于共同聊天出现的发送者关系网络
+
+    返回发送者两两关系对（强度排序）、图谱节点与边、群聊数量。
+    用于前端"关系图谱"可视化。
+    """
+    filters: dict[str, Any] = {}
+    if chat_id:
+        filters["chat_id"] = chat_id
+    if date_from:
+        filters["date_from"] = date_from
+    if date_to:
+        filters["date_to"] = date_to
+
+    try:
+        return await get_relationship_analysis(
+            filters=filters,
+            top_pairs_limit=top_pairs,
             top_senders_limit=top_senders,
         )
     except ValueError as exc:

@@ -697,6 +697,166 @@ async def get_contact_activity_stats(
     }
 
 
+async def get_relationship_analysis(
+    filters: dict[str, Any] | None = None,
+    *,
+    top_pairs_limit: int = 20,
+    top_senders_limit: int = 15,
+) -> dict[str, Any]:
+    """关系分析：基于"同一聊天中共同出现"的发送者关系网络
+
+    核心思路：如果两个 sender_name 在同一个 chat_id 中都发过消息，
+    则认为他们之间存在关系（例如群聊里的两个成员）。关系强度由
+    共同聊天数与这些聊天中的消息量共同决定。
+
+    返回：
+    - total_senders: 不重复的 sender_name 数量
+    - total_group_chats: 多人聊天（distinct sender >= 2）的数量
+    - top_pairs: 按强度排序的发送者对 [{a, b, shared_chats, message_volume, strength}]
+    - sender_nodes: 节点列表（用于前端图谱）[{name, message_count, chat_count}]
+    - edges: 与 top_pairs 对应的边列表 [{source, target, strength}]
+    """
+    where_sql, params = _build_message_filters(filters)
+
+    # 组装"过滤掉空 sender_name"的 where 子句
+    if where_sql:
+        sender_where = f"{where_sql} AND sender_name != ''"
+    else:
+        sender_where = "WHERE sender_name != ''"
+
+    async with _connect() as db:
+        # 1) 每个 (sender, chat) 的消息量 —— 用于构建邻接关系
+        cursor = await db.execute(
+            f"""
+            SELECT
+                sender_name,
+                chat_id,
+                COUNT(*) AS msg_count
+            FROM unified_messages
+            {sender_where}
+            GROUP BY sender_name, chat_id
+            """.strip(),
+            params,
+        )
+        membership_rows = await cursor.fetchall()
+        await cursor.close()
+
+        # 2) 每个聊天的成员数 —— 用于区分群聊 vs 单聊
+        cursor = await db.execute(
+            f"""
+            SELECT
+                chat_id,
+                COUNT(DISTINCT sender_name) AS member_count
+            FROM unified_messages
+            {sender_where}
+            GROUP BY chat_id
+            """.strip(),
+            params,
+        )
+        chat_member_rows = await cursor.fetchall()
+        await cursor.close()
+
+        # 3) 每个 sender 的总量（节点用）
+        cursor = await db.execute(
+            f"""
+            SELECT
+                sender_name,
+                COUNT(*) AS message_count,
+                COUNT(DISTINCT chat_id) AS chat_count
+            FROM unified_messages
+            {sender_where}
+            GROUP BY sender_name
+            ORDER BY message_count DESC
+            LIMIT ?
+            """.strip(),
+            (*params, top_senders_limit),
+        )
+        sender_rows = await cursor.fetchall()
+        await cursor.close()
+
+        # 4) 总发送者数
+        cursor = await db.execute(
+            f"""
+            SELECT COUNT(DISTINCT sender_name) AS total_senders
+            FROM unified_messages
+            {sender_where}
+            """.strip(),
+            params,
+        )
+        totals_row = await cursor.fetchone()
+        await cursor.close()
+
+    # ===== 在 Python 端构建关系图 =====
+    # sender -> {chat_id: msg_count}
+    sender_chats: dict[str, dict[str, int]] = {}
+    for row in membership_rows:
+        sender_chats.setdefault(row["sender_name"], {})[row["chat_id"]] = int(
+            row["msg_count"]
+        )
+
+    chat_members: dict[str, int] = {
+        row["chat_id"]: int(row["member_count"]) for row in chat_member_rows
+    }
+    group_chat_count = sum(1 for c in chat_members.values() if c >= 2)
+
+    # 计算两两关系强度（共同聊天数 + 这些聊天中的消息量）
+    senders = list(sender_chats.keys())
+    pairs: list[dict[str, Any]] = []
+    for i in range(len(senders)):
+        sa = senders[i]
+        chats_a = sender_chats[sa]
+        for j in range(i + 1, len(senders)):
+            sb = senders[j]
+            chats_b = sender_chats[sb]
+            shared = set(chats_a.keys()) & set(chats_b.keys())
+            if not shared:
+                continue
+            # 强度 = 共同聊天数 × 10 + 这些聊天中两人的消息总量
+            volume = sum(chats_a[c] + chats_b[c] for c in shared)
+            strength = len(shared) * 10 + volume
+            pairs.append(
+                {
+                    "a": sa,
+                    "b": sb,
+                    "shared_chats": len(shared),
+                    "message_volume": volume,
+                    "strength": strength,
+                }
+            )
+
+    # 按强度降序，取 Top N
+    pairs.sort(key=lambda p: p["strength"], reverse=True)
+    top_pairs = pairs[:top_pairs_limit]
+
+    # 节点：取出现在 top_pairs 中的发送者，补充消息量
+    involved = set()
+    for p in top_pairs:
+        involved.add(p["a"])
+        involved.add(p["b"])
+    sender_node_map = {
+        row["sender_name"]: {
+            "name": row["sender_name"],
+            "message_count": int(row["message_count"]),
+            "chat_count": int(row["chat_count"]),
+        }
+        for row in sender_rows
+    }
+    nodes = [sender_node_map[name] for name in involved if name in sender_node_map]
+
+    edges = [
+        {"source": p["a"], "target": p["b"], "strength": p["strength"]}
+        for p in top_pairs
+    ]
+
+    return {
+        "total_senders": int(totals_row["total_senders"] or 0) if totals_row else 0,
+        "total_group_chats": group_chat_count,
+        "top_pairs": top_pairs,
+        "sender_nodes": nodes,
+        "edges": edges,
+    }
+
+
 def _message_to_row(message: UnifiedMessage) -> tuple[Any, ...]:
     data = message.to_dict()
     message_id = data["id"] if data.get("id", 0) else None

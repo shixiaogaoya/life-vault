@@ -4,6 +4,7 @@ from app.db import (
     count_messages,
     get_contact_activity_stats,
     get_db_path,
+    get_relationship_analysis,
     get_visualization_stats,
     init_database,
     insert_messages,
@@ -476,3 +477,119 @@ class TestDatabase:
         assert stats["top_contacts"][0]["message_count"] == 5
         # 过滤后 total_senders 也只看 chat_b
         assert stats["total_senders"] == 1
+
+    async def test_relationship_analysis_empty_db(self):
+        """空数据库应返回零值结构，不报错"""
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        result = await get_relationship_analysis()
+
+        assert result["total_senders"] == 0
+        assert result["total_group_chats"] == 0
+        assert result["top_pairs"] == []
+        assert result["sender_nodes"] == []
+        assert result["edges"] == []
+
+    async def test_relationship_analysis_detects_shared_chat(self):
+        """两个发送者在同一群聊出现应产生一条关系"""
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        # group_chat: Alice 与 Bob 都发过消息（群聊）
+        # private_chat: 只有 Carol（单聊，无关系对）
+        messages = [
+            UnifiedMessage(
+                id=0, source=MessageSource.WECHAT_4X, msg_svr_id=10001,
+                local_id=1, msg_type=1, timestamp=1704067200,
+                chat_id="group_chat", sender_name="Alice", content="hi",
+            ),
+            UnifiedMessage(
+                id=0, source=MessageSource.WECHAT_4X, msg_svr_id=10002,
+                local_id=2, msg_type=1, timestamp=1704067300,
+                chat_id="group_chat", sender_name="Bob", content="hello",
+            ),
+            UnifiedMessage(
+                id=0, source=MessageSource.WECHAT_4X, msg_svr_id=10003,
+                local_id=3, msg_type=1, timestamp=1704067400,
+                chat_id="group_chat", sender_name="Alice", content="again",
+            ),
+            UnifiedMessage(
+                id=0, source=MessageSource.WECHAT_4X, msg_svr_id=10004,
+                local_id=4, msg_type=1, timestamp=1704067500,
+                chat_id="private_chat", sender_name="Carol", content="solo",
+            ),
+        ]
+        await insert_messages(messages)
+
+        result = await get_relationship_analysis()
+
+        # 3 个 sender
+        assert result["total_senders"] == 3
+        # group_chat 有 2 个成员，private_chat 有 1 个 => 1 个群聊
+        assert result["total_group_chats"] == 1
+
+        # Alice-Bob 应是唯一的关系对
+        pairs = result["top_pairs"]
+        assert len(pairs) == 1
+        pair = pairs[0]
+        assert {pair["a"], pair["b"]} == {"Alice", "Bob"}
+        assert pair["shared_chats"] == 1
+        # Alice 2 条 + Bob 1 条 = 3
+        assert pair["message_volume"] == 3
+        # 强度 = 共同聊天数(1)*10 + 消息量(3) = 13
+        assert pair["strength"] == 13
+
+        # 节点应包含 Alice 和 Bob
+        node_names = {n["name"] for n in result["sender_nodes"]}
+        assert "Alice" in node_names
+        assert "Bob" in node_names
+
+        # 边应连接 Alice-Bob
+        assert len(result["edges"]) == 1
+        edge = result["edges"][0]
+        assert {edge["source"], edge["target"]} == {"Alice", "Bob"}
+
+    async def test_relationship_analysis_strength_ordering(self):
+        """多个关系对应按强度降序排列"""
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        # chat1: Alice + Bob（高频，2 条 each）
+        # chat2: Alice + Carol（低频，1 条 each）
+        messages = [
+            *[
+                UnifiedMessage(
+                    id=0, source=MessageSource.WECHAT_4X,
+                    msg_svr_id=20000 + i, local_id=i, msg_type=1,
+                    timestamp=1704067200 + i,
+                    chat_id="chat1",
+                    sender_name="Alice" if i % 2 == 0 else "Bob",
+                    content=f"m{i}",
+                )
+                for i in range(4)
+            ],
+            *[
+                UnifiedMessage(
+                    id=0, source=MessageSource.WECHAT_4X,
+                    msg_svr_id=30000 + i, local_id=100 + i, msg_type=1,
+                    timestamp=1704067200 + i,
+                    chat_id="chat2",
+                    sender_name="Alice" if i % 2 == 0 else "Carol",
+                    content=f"c{i}",
+                )
+                for i in range(2)
+            ],
+        ]
+        await insert_messages(messages)
+
+        result = await get_relationship_analysis()
+
+        pairs = result["top_pairs"]
+        assert len(pairs) == 2
+        # Alice-Bob 强度 = 1*10 + 4 = 14
+        # Alice-Carol 强度 = 1*10 + 2 = 12
+        # Alice-Bob 应排第一
+        first = pairs[0]
+        assert {first["a"], first["b"]} == {"Alice", "Bob"}
+        assert pairs[0]["strength"] >= pairs[1]["strength"]

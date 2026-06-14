@@ -10,7 +10,7 @@ LifeVault 是一个开源的微信聊天记录分析工具，支持本地部署�
 
 - 🔒 **隐私优先** - 数据完全本地化，不上传任何服务器
 - 🔍 **全文检索** - 基于 SQLite FTS5 的高性能全文搜索
-- 📊 **统计分析** - 消息分布、热门聊天、时间线分析、联系人活跃度对比
+- 📊 **统计分析** - 消息分布、热门聊天、时间线分析、联系人活跃度对比、关系图谱
 - 📈 **数据可视化** - 24×7 活动热力图、时段分布、每日趋势、词云、emoji 统计、媒体类型分布
 - 📤 **多格式导出** - 支持 JSON、CSV、Markdown、HTML（含内嵌可视化图表）和分析报告导出
 - 🛡️ **导出隐私保护** - 导出前可脱敏手机号、身份证、邮箱、文件路径，也可为分享生成匿名化导出
@@ -281,6 +281,7 @@ export LIFEVAULT_LLM_API_KEY=sk-ant-...
 | `/api/stats` | GET | 获取统计信息 |
 | `/api/stats/visualization` | GET | 可视化数据（热力图、词云、emoji、媒体分布等） |
 | `/api/stats/contacts` | GET | 联系人 / 发送者活跃度对比数据（用于对比视图） |
+| `/api/stats/relationships` | GET | 关系分析（发送者关系网络、共同聊天、关系强度） |
 | `/api/messages` | GET | 分页查询消息列表 |
 | `/api/messages/{id}` | GET | 查询单条消息详情 |
 | `/api/search` | GET | 全文检索消息 |
@@ -407,6 +408,7 @@ LifeVault 使用统一的 `UnifiedMessage` 数据模型：
 - HTML 报告 / Markdown 导出 / 微信 4.x SQLite 路径导入
 - **数据可视化仪表板**（热力图、时段分布、每日趋势、词云、emoji、媒体分布）
 - **联系人活跃度对比视图**（聊天 / 发送者排名、活跃时段堆叠对比）
+- **关系图谱**（基于共同聊天的发送者关系网络、强度排行）
 - **AI 智能助手**（RAG 问答、智能摘要，支持 OpenAI / Anthropic / Ollama）
 - **向量索引**（本地 SQLite 向量库，cosine similarity 检索）
 

@@ -143,6 +143,34 @@ export interface ContactActivityStatsResponse {
   hourly_by_top_contacts: HourlyByContactItem[]
 }
 
+export interface RelationshipPair {
+  a: string
+  b: string
+  shared_chats: number
+  message_volume: number
+  strength: number
+}
+
+export interface RelationshipNode {
+  name: string
+  message_count: number
+  chat_count: number
+}
+
+export interface RelationshipEdge {
+  source: string
+  target: string
+  strength: number
+}
+
+export interface RelationshipAnalysisResponse {
+  total_senders: number
+  total_group_chats: number
+  top_pairs: RelationshipPair[]
+  sender_nodes: RelationshipNode[]
+  edges: RelationshipEdge[]
+}
+
 export interface AIStatus {
   llm_enabled: boolean
   llm_provider: string
