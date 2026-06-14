@@ -1,457 +1,359 @@
+<div align="center">
+
 # LifeVault
 
-> Your personal data archive — local-first, privacy-first, fully under your control
+**Your personal WeChat data archive — local-first, privacy-first, fully under your control**
 
-LifeVault is an open-source personal archive tool for WeChat chat history, featuring local deployment, privacy protection, full-text search, and data visualization.
+[![CI](https://github.com/shixiaogaoya/life-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/shixiaogaoya/life-vault/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![Vue](https://img.shields.io/badge/Nuxt-3-42b883.svg)](https://nuxt.com/)
 
-## ✨ Features
+A privacy-first archive and analysis platform for WeChat chat history. All data processing happens locally — nothing is uploaded, no telemetry is collected.
 
-- 🔒 **Privacy First** - All data stays local, never uploaded to any server
-- 🔍 **Full-Text Search** - High-performance search powered by SQLite FTS5
-- 📊 **Statistical Analysis** - Message distribution, top chats, timeline, contact activity comparison, relationship graph
-- 📈 **Data Visualization** - 24×7 activity heatmap, hourly distribution, daily trends, term cloud, emoji stats, media type distribution
-- 📤 **Multi-Format Export** - JSON, CSV, Markdown, HTML (with embedded charts), and analysis reports
-- 🛡️ **Private Export** - Mask identifiers before exporting, or generate anonymized exports for sharing
-- 🤖 **AI Assistant** - Optional RAG Q&A and summarization, supports OpenAI / Anthropic / Ollama (local)
-- 🐳 **One-command Docker** - Works the same on your laptop and a remote server, out of the box
-- 🎨 **Modern Interface** - Responsive web UI built with Nuxt 3
+**简体中文** · [English](README_EN.md) · [Roadmap](docs/ROADMAP.md) · [Issues](https://github.com/shixiaogaoya/life-vault/issues)
 
-## 🚀 Quick Start
+</div>
 
-LifeVault ships with two deployment paths: **Docker (recommended)** and **source (for development)**.
+---
 
-### Requirements
+## Table of Contents
 
-| Path | Requirements |
-|------|--------------|
-| Docker | Docker Engine + Compose plugin (v2), 2GB+ free memory |
-| Source | Python 3.11+, Node.js 18+, 8GB+ RAM (recommended) |
+- [Features](#features)
+- [Quick Start](#quick-start)
+  - [Docker (Recommended)](#docker-recommended)
+  - [From Source (Development)](#from-source-development)
+- [Importing Data](#importing-data)
+- [AI Features (Optional)](#ai-features-optional)
+- [API Reference](#api-reference)
+- [Privacy by Design](#privacy-by-design)
+- [Development & Testing](#development--testing)
+- [Roadmap](#roadmap)
+- [Contributing & License](#contributing--license)
 
-### 1. Clone the repository
+---
+
+## Features
+
+| Area | Capability |
+|------|------------|
+| 🔒 **Privacy First** | Data stays local, no uploads, no telemetry, no cloud sync |
+| 🔍 **Full-Text Search** | High-performance Chinese/English search via SQLite FTS5 |
+| 📊 **Statistics** | Message distribution, top chats, timeline, contact activity comparison |
+| 📈 **Visualization** | 24×7 activity heatmap, hourly distribution, daily trends, term clouds, emoji stats |
+| 🕸️ **Relationship Graph** | Sender network based on shared chats, with strength ranking |
+| 💬 **Topic Clustering** | Keyword co-occurrence based topic discovery (zero NLP deps) |
+| 📤 **Multi-Format Export** | JSON / CSV / Markdown / HTML (with embedded charts) / analysis reports |
+| 🛡️ **Export Privacy** | Mask phone/ID/email/names, anonymized sharing exports, password/GPG encryption |
+| 🤖 **AI Assistant** | Optional RAG Q&A and smart summaries; OpenAI / Anthropic / Ollama |
+| 🐳 **One-Command Deploy** | Docker works identically on localhost and remote servers |
+
+### UI Preview
+
+**Data Visualization Dashboard** — 24×7 activity heatmap, hourly distribution, daily trends, top terms, send/receive ratio:
+
+![Data Visualization Dashboard](docs/images/dashboard-demo.png)
+
+**Relationship Graph** — sender network based on shared chats; node size = message volume, line thickness = relationship strength:
+
+![Relationship Graph](docs/images/relationships-demo.png)
+
+---
+
+## Quick Start
+
+### Docker (Recommended)
+
+> Same commands on your laptop and a remote server. The frontend container ships with nginx that reverse-proxies `/api/*`, so the browser only ever talks to port 3000.
 
 ```bash
 git clone https://github.com/shixiaogaoya/life-vault.git
 cd life-vault
-```
-
----
-
-## 🐳 Option A: Docker (recommended)
-
-Docker is the simplest path, and **uses the exact same commands on your laptop and a remote server**.
-
-### A.1 One-command start
-
-From the repository root:
-
-```bash
 docker compose up --build -d
 ```
 
-`-d` runs in the background. The first start builds the images (2–5 minutes depending on network). Once ready:
+First launch takes ~2–5 minutes to build images. Then visit:
 
-| Service | Local address | Remote server address |
-|---------|---------------|----------------------|
-| Frontend UI | http://localhost:3000 | http://<server-ip>:3000 |
-| Backend API | http://localhost:8000 | http://<server-ip>:8000 |
-| API docs | http://localhost:8000/docs | http://<server-ip>:8000/docs |
+| Service | Local | Remote server |
+|---------|-------|---------------|
+| Frontend UI | http://localhost:3000 | http://\<server-ip\>:3000 |
+| API docs | http://localhost:8000/docs | http://\<server-ip\>:8000/docs |
 
-> 💡 **Why does it just work on a remote server?** The frontend container ships with nginx, which reverse-proxies browser requests for `/api/*` to the backend container. So the browser only ever talks to the frontend port (3000) — it never needs to know the backend address, and nothing is hardcoded to `localhost`.
-
-### A.2 Import data
-
-Docker startup **does not import any chat data automatically**. Import it separately:
-
-**Option 1: via the web UI (simplest)**
-
-Open http://localhost:3000 (or the server IP), go to "Import Data", and upload a LifeVault JSON file. **No extra setup required.**
-
-**Option 2: upload a JSON file via the API**
+**Common commands:**
 
 ```bash
-curl -X POST http://localhost:8000/api/import \
-  -F "file=@sample_data/demo.json"
+docker compose logs -f        # follow logs
+docker compose restart        # restart
+docker compose down           # stop (keeps data volume)
+docker compose down -v        # stop + wipe data (⚠️ irreversible)
 ```
 
-**Option 3: import WeChat SQLite databases (requires a mount)**
+<details>
+<summary><b>HTTPS / reverse proxy on a remote server (optional)</b></summary>
 
-WeChat 4.x's `MSG.db` and `MicroMsg.db` live on your host. Mount them into the backend container by editing the `backend` service in `docker-compose.yml`:
-
-```yaml
-services:
-  backend:
-    volumes:
-      - lifevault-data:/data
-      - /host/path/to/wechat:/wechat:ro   # add this line, absolute path
-```
-
-After `docker compose up -d`, call the import with **container-internal paths**:
-
-```bash
-curl -X POST http://localhost:8000/api/import \
-  -H "Content-Type: application/json" \
-  -d '{
-    "source": "wechat_4x",
-    "db_path": "/wechat/MSG.db",
-    "contact_db_path": "/wechat/MicroMsg.db"
-  }'
-```
-
-### A.3 HTTPS / reverse proxy on a remote server (optional)
-
-If your server already runs nginx/caddy, simply point its upstream at the frontend container's port 3000 — no LifeVault config changes needed. Example (outer nginx):
+If your server already runs nginx/caddy, point its upstream at port 3000 — no LifeVault config changes needed:
 
 ```nginx
 server {
     listen 443 ssl;
     server_name lifevault.example.com;
-    # ... your cert config ...
-
+    # ... cert config ...
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
-        client_max_body_size 256m;   # allow large export uploads
+        client_max_body_size 256m;
     }
 }
 ```
 
-To avoid exposing port 8000, remove the `backend.ports` section in `docker-compose.yml` and keep only the frontend port 3000 public.
+To avoid exposing port 8000, remove the `backend.ports` section in `docker-compose.yml` and keep only port 3000 public.
 
-### A.4 Common maintenance commands
+</details>
 
-```bash
-docker compose logs -f           # follow logs
-docker compose restart           # restart services
-docker compose down              # stop and remove containers (keeps the data volume)
-docker compose down -v           # stop and remove containers + data volume (⚠️ wipes all data)
-```
+### From Source (Development)
 
-The database lives in the named Docker volume `lifevault-data` (actual name may include the Compose project prefix; check with `docker volume ls`).
-
-### A.5 Enabling AI features in Docker (optional)
-
-Edit `backend.environment` in `docker-compose.yml`, uncomment and fill in the AI config (see [AI Configuration](#-ai-configuration-optional) below):
-
-```yaml
-backend:
-  environment:
-    LIFEVAULT_LLM_PROVIDER: ollama
-    LIFEVAULT_LLM_MODEL: llama3.2
-    LIFEVAULT_EMBEDDING_PROVIDER: ollama
-    LIFEVAULT_EMBEDDING_MODEL: nomic-embed-text
-```
-
-Then run `docker compose up -d` to apply.
-
----
-
-## 💻 Option B: Run from source (development)
-
-Useful for modifying code or debugging.
-
-### B.1 Start the backend (terminal 1)
+For modifying code or debugging.
 
 ```bash
+# Terminal 1: backend
 cd backend
 pip install -e ".[dev]"
-python -m app.main
-```
+python -m app.main                      # http://localhost:8000
 
-Backend runs on http://localhost:8000.
-
-### B.2 Start the frontend (terminal 2)
-
-Because dev mode uses separate ports, you must tell the frontend where the backend is:
-
-```bash
-# macOS / Linux
-export NUXT_PUBLIC_API_BASE=http://localhost:8000
-
-# Windows PowerShell
-$env:NUXT_PUBLIC_API_BASE = "http://localhost:8000"
-
+# Terminal 2: frontend (must specify backend address; dev uses separate ports)
 cd frontend
+# Windows:  $env:NUXT_PUBLIC_API_BASE = "http://localhost:8000"
+# Linux:    export NUXT_PUBLIC_API_BASE=http://localhost:8000
 npm install
-npm run dev
-```
-
-Frontend runs on http://localhost:3000.
-
-### B.3 Import sample data
-
-```bash
-curl -X POST http://localhost:8000/api/import \
-  -F "file=@sample_data/demo.json"
-```
-
-Or run the script:
-
-```bash
-python scripts/import_demo_data.py
+npm run dev                             # http://localhost:3000
 ```
 
 ---
 
-## 🤖 AI Configuration (optional)
+## Importing Data
 
-LifeVault's AI features (RAG Q&A, smart summaries) are **disabled by default** and must be explicitly enabled via environment variables. All config uses the `LIFEVAULT_*` prefix.
+Docker / source startup **does not import data automatically**. Three options:
 
-### Mode 1: Local Ollama (recommended, privacy-first)
+**1. Upload via the web UI (simplest)** — visit port 3000 → "Import Data" → upload a LifeVault JSON file. No extra config.
 
-For users who want AI capabilities in a fully local environment.
+**2. Upload JSON via the API:**
 
 ```bash
-# Install and start Ollama (see https://ollama.com)
-ollama pull llama3.2
-ollama pull nomic-embed-text
-ollama serve  # listens on port 11434 by default
+curl -X POST http://localhost:8000/api/import -F "file=@sample_data/demo.json"
+```
 
-# Configure LifeVault
+**3. Import WeChat SQLite databases (requires a mount):**
+
+```bash
+# Add to docker-compose.yml backend.volumes:
+#   - /host/path/to/wechat:/wechat:ro
+curl -X POST http://localhost:8000/api/import \
+  -H "Content-Type: application/json" \
+  -d '{"source":"wechat_4x","db_path":"/wechat/MSG.db","contact_db_path":"/wechat/MicroMsg.db"}'
+```
+
+---
+
+## AI Features (Optional)
+
+AI features (RAG Q&A, smart summaries) are **disabled by default** and require explicit environment variables. Three providers:
+
+| Provider | Privacy | Config |
+|----------|---------|--------|
+| **Ollama** (recommended) | ✅ Data stays local | Just `LIFEVAULT_LLM_PROVIDER=ollama` + model name |
+| OpenAI / DeepSeek / Moonshot | ⚠️ Sent to cloud | Requires API key |
+| Anthropic Claude | ⚠️ Sent to cloud | Requires API key |
+
+<details>
+<summary><b>Ollama config (local, privacy-first)</b></summary>
+
+```bash
+ollama pull llama3.2 && ollama pull nomic-embed-text && ollama serve
+
 export LIFEVAULT_LLM_PROVIDER=ollama
 export LIFEVAULT_LLM_MODEL=llama3.2
 export LIFEVAULT_EMBEDDING_PROVIDER=ollama
 export LIFEVAULT_EMBEDDING_MODEL=nomic-embed-text
 ```
 
-All data stays local and **is never sent to any external service**.
+</details>
 
-### Mode 2: OpenAI / DeepSeek / Moonshot (compatible APIs)
+<details>
+<summary><b>OpenAI / Anthropic config</b></summary>
 
 ```bash
+# OpenAI (compatible with DeepSeek/Moonshot via LIFEVAULT_LLM_BASE_URL)
 export LIFEVAULT_LLM_PROVIDER=openai
 export LIFEVAULT_LLM_MODEL=gpt-4o-mini
 export LIFEVAULT_LLM_API_KEY=sk-...
-# Optional: custom base URL (for DeepSeek and other compatible services)
-# export LIFEVAULT_LLM_BASE_URL=https://api.deepseek.com/v1
 
-export LIFEVAULT_EMBEDDING_PROVIDER=openai
-export LIFEVAULT_EMBEDDING_MODEL=text-embedding-3-small
-export LIFEVAULT_EMBEDDING_API_KEY=sk-...
-```
-
-> ⚠️ In this mode, the chat snippets you ask about are sent to the cloud LLM. The frontend shows an explicit warning.
-
-### Mode 3: Anthropic Claude
-
-```bash
+# Anthropic
 export LIFEVAULT_LLM_PROVIDER=anthropic
 export LIFEVAULT_LLM_MODEL=claude-sonnet-4-6
 export LIFEVAULT_LLM_API_KEY=sk-ant-...
 ```
 
-### Full environment variable reference
+</details>
+
+<details>
+<summary><b>Full environment variable reference</b></summary>
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LIFEVAULT_DB_PATH` | `~/.lifevault/archive.db` | SQLite database path |
 | `LIFEVAULT_CORS_ORIGINS` | `http://localhost:3000` | Allowed frontend origins (comma-separated) |
-| `LIFEVAULT_HOST` / `LIFEVAULT_PORT` | `127.0.0.1` / `8000` | Backend bind address and port |
-| `LIFEVAULT_TIMEZONE_OFFSET` | `8` | Timezone offset (hours); affects heatmap and summary bucketing |
-| `LIFEVAULT_LLM_PROVIDER` | `disabled` | LLM provider: `disabled` / `openai` / `anthropic` / `ollama` |
-| `LIFEVAULT_LLM_MODEL` | empty | Model name (e.g. `gpt-4o-mini`, `llama3.2`) |
+| `LIFEVAULT_HOST` / `LIFEVAULT_PORT` | `127.0.0.1` / `8000` | Backend bind address |
+| `LIFEVAULT_TIMEZONE_OFFSET` | `8` | Timezone offset (hours) |
+| `LIFEVAULT_LLM_PROVIDER` | `disabled` | `disabled`/`openai`/`anthropic`/`ollama` |
+| `LIFEVAULT_LLM_MODEL` | empty | Model name |
 | `LIFEVAULT_LLM_API_KEY` | empty | API key (not needed for Ollama) |
-| `LIFEVAULT_LLM_BASE_URL` | provider default | Custom API endpoint |
-| `LIFEVAULT_LLM_MAX_TOKENS` | `1024` | Max generation tokens |
-| `LIFEVAULT_LLM_TEMPERATURE` | `0.7` | Sampling temperature |
-| `LIFEVAULT_EMBEDDING_PROVIDER` | `disabled` | Embedding provider: `disabled` / `openai` / `ollama` / `local` |
+| `LIFEVAULT_LLM_BASE_URL` | provider default | Custom endpoint |
+| `LIFEVAULT_EMBEDDING_PROVIDER` | `disabled` | `disabled`/`openai`/`ollama`/`local` |
 | `LIFEVAULT_EMBEDDING_MODEL` | empty | Embedding model name |
-| `LIFEVAULT_EMBEDDING_API_KEY` | empty | Embedding API key |
-| `LIFEVAULT_EMBEDDING_DIMENSIONS` | `768` | Vector dimensions (must match the model) |
+| `LIFEVAULT_EMBEDDING_DIMENSIONS` | `768` | Vector dimensions |
 | `LIFEVAULT_VECTOR_DB_PATH` | `~/.lifevault/vectors.db` | Vector store path |
 | `LIFEVAULT_AI_TIMEOUT` | `60` | AI request timeout (seconds) |
 
-Once enabled, visit `http://<your-address>:3000/ai-chat` to use the AI assistant.
+</details>
+
+Once enabled, visit `http://<address>:3000/ai-chat`. Docker users configure it in `docker-compose.yml` under `backend.environment`.
 
 ---
 
-## 📖 API Documentation
+## API Reference
 
-After starting the backend, visit:
+Visit `http://<address>:8000/docs` (Swagger) or `/redoc` for full docs. Core endpoints:
 
-- Swagger UI: `http://<address>:8000/docs`
-- ReDoc: `http://<address>:8000/redoc`
-
-### Core API Endpoints
+<details>
+<summary><b>Statistics & Analysis</b></summary>
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/stats` | GET | Get statistics |
-| `/api/stats/visualization` | GET | Visualization data (heatmap, term cloud, emoji, media distribution) |
-| `/api/stats/contacts` | GET | Contact / sender activity ranking (comparison view) |
-| `/api/stats/relationships` | GET | Relationship analysis (sender network, shared chats, strength) |
-| `/api/stats/topics` | GET | Topic clustering (keyword co-occurrence based topic discovery) |
+| `/api/stats` | GET | Basic stats (totals, chat count, sources) |
+| `/api/stats/visualization` | GET | Heatmap, term cloud, emoji, media distribution |
+| `/api/stats/contacts` | GET | Contact / sender activity comparison |
+| `/api/stats/relationships` | GET | Relationship graph (shared chats, strength) |
+| `/api/stats/topics` | GET | Topic clustering |
+
+</details>
+
+<details>
+<summary><b>Messages & Search</b></summary>
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
 | `/api/messages` | GET | Paginated message list |
-| `/api/messages/{id}` | GET | Get single message |
-| `/api/search` | GET | Full-text search |
-| `/api/export/json` | GET | Export as JSON |
-| `/api/export/csv` | GET | Export as CSV |
-| `/api/export/report` | GET | Export analysis report (with visualization data) |
-| `/api/export/markdown` | GET | Export Markdown chat logs |
-| `/api/export/html` | GET | Export a self-contained HTML analysis report (with embedded SVG charts) |
-| `/api/import` | POST | Import a LifeVault JSON file or WeChat database paths |
+| `/api/messages/{id}` | GET | Single message |
+| `/api/search` | GET | FTS5 full-text search |
+| `/api/import` | POST | Import JSON or WeChat database paths |
+
+</details>
+
+<details>
+<summary><b>Export (supports privacy params)</b></summary>
+
+| Endpoint | Description |
+|----------|-------------|
+| `/api/export/json` `/api/export/csv` | Structured data export |
+| `/api/export/markdown` `/api/export/html` | Human-readable export (HTML has embedded SVG charts) |
+| `/api/export/report` | Analysis report (with visualization data) |
+
+**Privacy query params:** `mask_sensitive` (mask phone/ID/email/names), `mask_terms=word1,word2` (custom masking), `anonymize` (anonymized sharing export), `encrypt_password` (`.lvenc` encryption), `gpg_recipient` (GPG encryption).
+
+</details>
+
+<details>
+<summary><b>AI (requires enabling)</b></summary>
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
 | `/api/ai/status` | GET | AI module status |
 | `/api/ai/chat` | POST | RAG Q&A |
 | `/api/ai/summary` | POST | Smart summary (day/week/month) |
 | `/api/ai/index` | POST | Start vector index build |
-| `/api/ai/index/status` | GET | Index build progress |
+| `/api/ai/index/status` | GET | Index progress |
 
-Export endpoints support privacy query parameters:
-
-- `mask_sensitive=true`: mask phone numbers, ID cards, emails, common local file paths, and conservative Chinese name/address matches in exported data
-- `mask_terms=Alice,Beijing`: additionally mask custom names, addresses, aliases, or other sensitive terms
-- `anonymize=true`: generate sharing-oriented anonymized exports by replacing people and chats with `Person N` / `Chat N`, removing location messages and location metadata, and sanitizing local file paths
-- `encrypt_password=strong-password`: generate password-protected `.lvenc` files for JSON/CSV exports
-- `gpg_recipient=alice@example.com`: generate `.json.gpg` or `.csv.gpg` files for JSON/CSV exports using a local GPG public key
+</details>
 
 ---
 
-## 🧪 Run Tests
+## Privacy by Design
+
+Privacy is a core, non-negotiable design constraint:
+
+- **Local-only processing** — all data processed on your machine/server
+- **No cloud sync** — data never leaves your deployment environment
+- **No telemetry** — no usage data collected
+- **No external calls** — unless you explicitly enable LLM (disabled by default); cloud providers show a clear warning in the UI
+
+See [SECURITY.md](SECURITY.md) and [docs/PRIVACY_MASKING.md](docs/PRIVACY_MASKING.md).
+
+---
+
+## Development & Testing
 
 ```bash
-cd backend
-python -m pytest tests/ -v
+# Backend tests (133 cases)
+cd backend && python -m pytest tests/ -v
+
+# Full check (pytest + frontend build + e2e)
+.\scripts\check.ps1          # Windows
+sh scripts/check.sh          # Linux/macOS
 ```
 
-Run the full local check (pytest + frontend build + end-to-end sample data check):
+**Tech stack:**
+- **Backend** — Python 3.11+ · FastAPI · SQLite + FTS5 · Pydantic · aiosqlite · httpx
+- **Frontend** — Nuxt 3 · Vue 3 · TypeScript · Tailwind CSS · nginx (production)
 
-```bash
-# Windows PowerShell
-.\scripts\check.ps1
+<details>
+<summary><b>Project structure</b></summary>
 
-# macOS/Linux
-sh scripts/check.sh
+```
+life-vault/
+├── backend/app/
+│   ├── main.py            # entry
+│   ├── db.py              # DB + stats aggregation (viz/contacts/relationships/topics)
+│   ├── routers/           # API routes (messages/search/stats/export/ai/import)
+│   ├── adapters/          # WeChat 4.x data adapter
+│   ├── privacy/           # masking and anonymization
+│   ├── ai/                # LLM/Embedding/vector store/RAG/summaries (disabled by default)
+│   └── utils/             # text/emoji utilities
+├── frontend/              # Nuxt 3 + nginx.conf (with /api reverse proxy)
+├── docker-compose.yml     # one-command start
+├── sample_data/           # sample data
+├── scripts/               # check/import/e2e scripts
+└── docs/                  # ROADMAP etc.
 ```
 
-Current coverage:
-
-- ✅ 120+ test cases (database, API, export, privacy masking, AI providers/embeddings/routes)
-- ✅ API endpoint integration tests
-- ✅ Database and FTS5 search tests
-- ✅ Export format and privacy pipeline tests
-- ✅ AI module (mock providers, no real API calls)
-- ✅ Sample data end-to-end check
+</details>
 
 ---
 
-## 🏗️ Architecture
+## Roadmap
 
-```
-LifeVault
-├── backend/        # FastAPI backend service
-│   ├── app/
-│   │   ├── main.py           # Application entry point
-│   │   ├── db.py             # Database ops + visualization / contact stats aggregation
-│   │   ├── models/           # Data models
-│   │   ├── routers/          # API routes (messages/search/stats/export/ai/import)
-│   │   ├── adapters/         # Data adapters (WeChat 4.x)
-│   │   ├── privacy/          # Masking and anonymization
-│   │   ├── ai/               # LLM/Embedding/vector store/RAG/summaries (disabled by default)
-│   │   └── utils/            # Shared helpers (text/emoji detection)
-│   ├── Dockerfile
-│   └── tests/                # Unit + integration tests
-│
-├── frontend/       # Nuxt 3 frontend app
-│   ├── nginx.conf            # Production nginx config (with /api reverse proxy)
-│   └── Dockerfile            # Multi-stage: node build → nginx serve
-│
-├── docker-compose.yml        # One-command start (works locally and on remote servers)
-├── sample_data/    # Sample datasets
-├── scripts/        # Utility scripts (check, import, e2e)
-└── docs/           # Project documentation (ROADMAP, etc.)
-```
+Full roadmap at [docs/ROADMAP.md](docs/ROADMAP.md).
 
-### Tech Stack
-
-**Backend**: Python 3.11+ · FastAPI · SQLite + FTS5 · Pydantic · aiosqlite · httpx (AI)
-
-**Frontend**: Nuxt 3 · Vue 3 · TypeScript · Tailwind CSS · nginx (production)
+- **v0.1.0** ✅ — Unified data model, FTS5 search, RESTful API, basic frontend, JSON/CSV export
+- **v0.2.0 (current)** ✅ — Privacy masking/anonymization/encryption exports, visualization dashboard, relationship graph, topic clustering, AI assistant (RAG + summaries), vector indexing
+- **v0.3.0 (planned)** — Electron desktop app, cross-platform packaging, multi-source (QQ, Telegram)
 
 ---
 
-## 📊 Data Model
+## Contributing & License
 
-LifeVault uses a unified `UnifiedMessage` data model:
-
-```python
-{
-  "id": 1,
-  "source": "wechat_4x",          # Data source
-  "msg_type": 1,                  # Message type (1=text, 3=image...)
-  "sub_type": 0,                  # Sub type
-  "timestamp": 1704067200,        # Unix timestamp
-  "chat_id": "user_a",            # Chat ID
-  "chat_name": "User A",          # Chat name
-  "sender_id": "wxid_user_a",     # Sender ID
-  "sender_name": "User A",        # Sender name
-  "is_sender": false,             # Is self
-  "content": "Good morning",      # Message content
-  "raw": {},                      # Raw data
-  "metadata": {}                  # Metadata
-}
-```
-
-Supported message types: text (1), image (3), voice (34), video (43), sticker (47), app message (49, incl. links/mini-programs/files), system (10000), and more.
-
----
-
-## 🗺️ Roadmap
-
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
-
-### v0.1.0 ✅
-- Unified data model, SQLite + FTS5, RESTful API, basic frontend, JSON/CSV export, sample data & tests
-
-### v0.2.0 (Current) ✅
-- Export masking / automatic name-address detection / sharing anonymization / export encryption (password + GPG)
-- HTML report / Markdown export / WeChat 4.x SQLite path import
-- **Data visualization dashboard** (heatmap, hourly distribution, daily trends, term cloud, emoji, media distribution)
-- **Contact activity comparison view** (chat / sender ranking, hourly stacked comparison)
-- **Relationship graph** (sender network based on shared chats, strength ranking)
-- **Topic clustering** (keyword co-occurrence based topic discovery, zero NLP deps)
-- **AI assistant** (RAG Q&A, smart summaries; supports OpenAI / Anthropic / Ollama)
-- **Vector indexing** (local SQLite vector store, cosine similarity)
-
-### v0.3.0 (Future)
-- Electron desktop app, cross-platform packaging, auto-update, multi-source (QQ, Telegram)
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## 🔒 Privacy Notice
-
-LifeVault is designed with **privacy as the core principle**:
-
-- **Local-only processing** - All data processing happens on your machine / the server you control
-- **No cloud sync** - Your data never leaves the environment you deploy
-- **No telemetry** - We don't collect any usage data
-- **No external API calls** - Except when you explicitly enable LLM features (disabled by default)
-
-For security best practices, see [SECURITY.md](SECURITY.md).
-
-## 📄 License
+Contributions, bug reports, and suggestions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 This project is licensed under the [MIT License](LICENSE).
 
-## 🙏 Acknowledgments
-
-LifeVault is inspired by and builds upon:
-
-- [MemoTrace](https://github.com/LC044/WeChatMsg) - WeChat message export and visualization tool
-- [WeChatDataAnalysis](https://github.com/lz233/WeChatDataAnalysis) - WeChat data analysis framework
-
-Special thanks to [FastAPI](https://fastapi.tiangolo.com/), [Nuxt](https://nuxt.com/), and all open-source projects contributing to privacy protection and data sovereignty.
-
-## 📮 Contact
-
-- Project Home: [GitHub Repository](https://github.com/shixiaogaoya/life-vault)
-- Issue Tracker: [GitHub Issues](https://github.com/shixiaogaoya/life-vault/issues)
+**Acknowledgments:** LifeVault is inspired by [MemoTrace](https://github.com/LC044/WeChatMsg) and [WeChatDataAnalysis](https://github.com/lz233/WeChatDataAnalysis), and thanks FastAPI, Nuxt, and the open-source community.
 
 ---
 
-**LifeVault** - Take back control of your data 🔒
+<div align="center">
 
-Made with ❤️ by privacy advocates
+**LifeVault** — Take back control of your data 🔒
+
+Made with ❤️ · [Issues](https://github.com/shixiaogaoya/life-vault/issues) · [Homepage](https://github.com/shixiaogaoya/life-vault)
+
+</div>

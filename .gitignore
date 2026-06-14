@@ -1,6 +1,18 @@
 # Kiro 本地配置
 .kiro/
 
+# AI 助手 / 内部开发笔记（不应进入公开仓库）
+CLAUDE.md
+.context/
+.agents/
+
+# OpenSpec 内部规划文档（研究草稿性质，不对外发布）
+openspec/
+
+# 内部审计/扫描报告（开发期产物）
+docs/PRE_RELEASE_AUDIT.md
+docs/SECURITY_SCAN.md
+
 # Python
 __pycache__/
 *.py[cod]
