@@ -280,6 +280,7 @@ After starting the backend, visit:
 | `/api/stats/visualization` | GET | Visualization data (heatmap, term cloud, emoji, media distribution) |
 | `/api/stats/contacts` | GET | Contact / sender activity ranking (comparison view) |
 | `/api/stats/relationships` | GET | Relationship analysis (sender network, shared chats, strength) |
+| `/api/stats/topics` | GET | Topic clustering (keyword co-occurrence based topic discovery) |
 | `/api/messages` | GET | Paginated message list |
 | `/api/messages/{id}` | GET | Get single message |
 | `/api/search` | GET | Full-text search |
@@ -407,6 +408,7 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the complete roadmap.
 - **Data visualization dashboard** (heatmap, hourly distribution, daily trends, term cloud, emoji, media distribution)
 - **Contact activity comparison view** (chat / sender ranking, hourly stacked comparison)
 - **Relationship graph** (sender network based on shared chats, strength ranking)
+- **Topic clustering** (keyword co-occurrence based topic discovery, zero NLP deps)
 - **AI assistant** (RAG Q&A, smart summaries; supports OpenAI / Anthropic / Ollama)
 - **Vector indexing** (local SQLite vector store, cosine similarity)
 

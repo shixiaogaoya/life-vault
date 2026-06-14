@@ -9,6 +9,7 @@ import type {
   RelationshipAnalysisResponse,
   SearchResponse,
   StatsResponse,
+  TopicClustersResponse,
   VisualizationStatsResponse,
 } from '~/types/message'
 
@@ -110,6 +111,25 @@ export const useApi = () => {
 
     const response = await fetch(`${baseURL}/api/stats/relationships?${query}`)
     if (!response.ok) throw new Error('Failed to fetch relationship analysis')
+    return response.json()
+  }
+
+  const getTopicClusters = async (params: {
+    chat_id?: string
+    date_from?: string
+    date_to?: string
+    top_terms?: number
+    max_clusters?: number
+  } = {}): Promise<TopicClustersResponse> => {
+    const query = new URLSearchParams()
+    if (params.chat_id) query.append('chat_id', params.chat_id)
+    if (params.date_from) query.append('date_from', params.date_from)
+    if (params.date_to) query.append('date_to', params.date_to)
+    if (params.top_terms) query.append('top_terms', params.top_terms.toString())
+    if (params.max_clusters) query.append('max_clusters', params.max_clusters.toString())
+
+    const response = await fetch(`${baseURL}/api/stats/topics?${query}`)
+    if (!response.ok) throw new Error('Failed to fetch topic clusters')
     return response.json()
   }
 
@@ -242,6 +262,7 @@ export const useApi = () => {
     getVisualizationStats,
     getContactActivityStats,
     getRelationshipAnalysis,
+    getTopicClusters,
     getAIStatus,
     aiChat,
     aiSummary,

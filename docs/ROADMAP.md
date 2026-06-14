@@ -59,7 +59,7 @@ Build a **privacy-first, local-first personal data archive** that gives users co
   - [x] Privacy-aware mode (local LLM only)
 - [x] Smart summaries
   - [x] Daily/weekly/monthly chat summaries
-  - [ ] Topic clustering
+  - [x] Topic clustering
   - [x] Relationship analysis
 
 ### Enhanced Export

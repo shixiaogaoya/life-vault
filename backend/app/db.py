@@ -9,7 +9,7 @@ from typing import Any, AsyncIterator
 import aiosqlite
 
 from app.models.message import UnifiedMessage
-from app.utils.text import extract_text_tokens, is_emoji_char
+from app.utils.text import extract_topic_tokens, extract_text_tokens, is_emoji_char
 
 
 DEFAULT_DB_PATH = "~/.lifevault/archive.db"
@@ -854,6 +854,151 @@ async def get_relationship_analysis(
         "top_pairs": top_pairs,
         "sender_nodes": nodes,
         "edges": edges,
+    }
+
+
+async def get_topic_clusters(
+    filters: dict[str, Any] | None = None,
+    *,
+    top_terms_limit: int = 40,
+    max_clusters: int = 8,
+    sample_size: int = 20000,
+) -> dict[str, Any]:
+    """话题聚类：基于关键词共现的轻量级话题发现
+
+    算法（无第三方 NLP 依赖）：
+    1. 拉取文本类消息（msg_type=1），最多 sample_size 条
+    2. 用 extract_topic_tokens 提取关键词（中文 2/3-gram + 英文词）
+    3. 统计每个关键词的文档频率（DF），取 Top N
+    4. 构建共现图：两个关键词在同一条消息中出现则连边，
+       边权 = 共同出现的消息数
+    5. 用贪心+并查集按共现强度对关键词分簇
+    6. 每簇取代表关键词与命中消息数
+
+    返回：
+    - total_messages: 参与分析的文本消息数
+    - total_terms: 候选关键词总数（去重后）
+    - clusters: [{id, label, keywords: [...], message_count, top_terms}]
+    """
+    # 仅文本类消息
+    text_filters = {"msg_type": 1}
+    if filters:
+        for key in ("chat_id", "source", "date_from", "date_to"):
+            if filters.get(key) is not None:
+                text_filters[key] = filters[key]
+    text_where, text_params = _build_message_filters(text_filters)
+
+    async with _connect() as db:
+        cursor = await db.execute(
+            f"""
+            SELECT content
+            FROM unified_messages
+            {text_where}
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """.strip(),
+            (*text_params, sample_size),
+        )
+        text_rows = await cursor.fetchall()
+        await cursor.close()
+
+    messages: list[str] = [row["content"] or "" for row in text_rows]
+    total_messages = len(messages)
+
+    # 1) 每条消息的 token 集合（去重）
+    doc_tokens: list[set[str]] = []
+    df: Counter = Counter()
+    for content in messages:
+        toks = set(extract_topic_tokens(content))
+        if not toks:
+            continue
+        doc_tokens.append(toks)
+        for t in toks:
+            df[t] += 1
+
+    # 2) 取 Top N 关键词（DF 排序）
+    top_terms = [t for t, _ in df.most_common(top_terms_limit)]
+    top_set = set(top_terms)
+
+    if not top_terms:
+        return {
+            "total_messages": total_messages,
+            "total_terms": len(df),
+            "clusters": [],
+        }
+
+    # 3) 共现矩阵（仅 Top N 之间）
+    co: Counter = Counter()
+    for toks in doc_tokens:
+        present = toks & top_set
+        present_list = list(present)
+        for i in range(len(present_list)):
+            for j in range(i + 1, len(present_list)):
+                a, b = present_list[i], present_list[j]
+                # 用有序对作为键，保证 (a,b) 与 (b,a) 合并
+                key = (a, b) if a <= b else (b, a)
+                co[key] += 1
+
+    # 4) 并查集聚类：共现次数 >= 阈值则合并
+    # 阈值取共现次数的中位数（至少 2），避免噪声
+    co_values = list(co.values())
+    threshold = 2
+    if co_values:
+        co_values_sorted = sorted(co_values)
+        median = co_values_sorted[len(co_values_sorted) // 2]
+        threshold = max(2, median)
+
+    parent: dict[str, str] = {t: t for t in top_terms}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for (a, b), count in co.items():
+        if count >= threshold:
+            union(a, b)
+
+    # 5) 按 root 分组
+    groups: dict[str, list[str]] = {}
+    for t in top_terms:
+        root = find(t)
+        groups.setdefault(root, []).append(t)
+
+    # 每个簇：用 DF 最高的词做 label，统计命中消息数
+    cluster_list: list[dict[str, Any]] = []
+    for root, members in groups.items():
+        members_sorted = sorted(members, key=lambda t: df[t], reverse=True)
+        label = members_sorted[0]
+        member_set = set(members_sorted)
+        # 命中消息数 = 至少包含一个簇内关键词的消息数
+        hit_count = sum(1 for toks in doc_tokens if toks & member_set)
+        cluster_list.append(
+            {
+                "label": label,
+                "keywords": members_sorted[:10],
+                "message_count": hit_count,
+                "term_count": len(members_sorted),
+            }
+        )
+
+    # 按命中消息数降序，取前 max_clusters 个
+    cluster_list.sort(key=lambda c: c["message_count"], reverse=True)
+    clusters = [
+        {"id": idx, **c}
+        for idx, c in enumerate(cluster_list[:max_clusters])
+    ]
+
+    return {
+        "total_messages": total_messages,
+        "total_terms": len(df),
+        "clusters": clusters,
     }
 
 

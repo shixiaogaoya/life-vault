@@ -52,3 +52,41 @@ def extract_text_tokens(text: str) -> list[str]:
         else:
             tokens.extend(list(match))
     return tokens
+
+
+# 中文高频无义字（单字聚类噪声大，单独剔除）
+_STOPWORDS_ZH_CHARS = frozenset(
+    "的了是在我有和人这中大为上个国他到说们"
+    "里也着时就会来去能对要没而被让把给吗"
+    "吧啊呢啦哦哈嗯呀嘛吖哇哪呗嘞"
+)
+
+
+def extract_topic_tokens(text: str) -> list[str]:
+    """用于话题聚类的 token 提取
+
+    与 extract_text_tokens 的区别：
+    - 英文按词（同上）
+    - 中文：提取 2-3 字的连续子串（bigram/trigram）作为候选词，
+      过滤纯无义单字。这样能捕捉到如"python"、"工作"、"周末"等
+      有语义的片段，而不是拆成孤立单字。
+    - 仍忽略英文停用词与中文无义字
+    """
+    if not text:
+        return []
+    tokens: list[str] = []
+    for match in _TOKEN_PATTERN.findall(text):
+        if match.isascii():
+            lowered = match.lower()
+            if len(lowered) >= 2 and lowered not in STOPWORDS_EN:
+                tokens.append(lowered)
+        else:
+            # 中文片段：取 2-gram 和 3-gram
+            chars = [c for c in match if c not in _STOPWORDS_ZH_CHARS]
+            for n in (2, 3):
+                for i in range(len(chars) - n + 1):
+                    gram = "".join(chars[i : i + n])
+                    # 跳过包含标点/数字的混合片段（已是纯 CJK）
+                    if len(gram) == n:
+                        tokens.append(gram)
+    return tokens

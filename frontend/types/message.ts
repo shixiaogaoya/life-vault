@@ -171,6 +171,20 @@ export interface RelationshipAnalysisResponse {
   edges: RelationshipEdge[]
 }
 
+export interface TopicCluster {
+  id: number
+  label: string
+  keywords: string[]
+  message_count: number
+  term_count: number
+}
+
+export interface TopicClustersResponse {
+  total_messages: number
+  total_terms: number
+  clusters: TopicCluster[]
+}
+
 export interface AIStatus {
   llm_enabled: boolean
   llm_provider: string

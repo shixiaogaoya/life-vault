@@ -282,6 +282,7 @@ export LIFEVAULT_LLM_API_KEY=sk-ant-...
 | `/api/stats/visualization` | GET | 可视化数据（热力图、词云、emoji、媒体分布等） |
 | `/api/stats/contacts` | GET | 联系人 / 发送者活跃度对比数据（用于对比视图） |
 | `/api/stats/relationships` | GET | 关系分析（发送者关系网络、共同聊天、关系强度） |
+| `/api/stats/topics` | GET | 话题聚类（基于关键词共现的话题发现） |
 | `/api/messages` | GET | 分页查询消息列表 |
 | `/api/messages/{id}` | GET | 查询单条消息详情 |
 | `/api/search` | GET | 全文检索消息 |
@@ -409,6 +410,7 @@ LifeVault 使用统一的 `UnifiedMessage` 数据模型：
 - **数据可视化仪表板**（热力图、时段分布、每日趋势、词云、emoji、媒体分布）
 - **联系人活跃度对比视图**（聊天 / 发送者排名、活跃时段堆叠对比）
 - **关系图谱**（基于共同聊天的发送者关系网络、强度排行）
+- **话题聚类**（基于关键词共现的话题发现，零 NLP 依赖）
 - **AI 智能助手**（RAG 问答、智能摘要，支持 OpenAI / Anthropic / Ollama）
 - **向量索引**（本地 SQLite 向量库，cosine similarity 检索）
 

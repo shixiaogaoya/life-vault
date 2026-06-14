@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from app.db import get_contact_activity_stats
 from app.db import get_relationship_analysis
 from app.db import get_stats as get_db_stats
+from app.db import get_topic_clusters
 from app.db import get_visualization_stats
 
 
@@ -125,6 +126,39 @@ async def get_relationships(
             filters=filters,
             top_pairs_limit=top_pairs,
             top_senders_limit=top_senders,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="internal server error") from exc
+
+
+@router.get("/stats/topics")
+async def get_topics(
+    chat_id: str | None = Query(None, description="按聊天 ID 过滤"),
+    date_from: str | None = Query(None, description="起始日期（ISO 8601 或 epoch 秒）"),
+    date_to: str | None = Query(None, description="结束日期（ISO 8601 或 epoch 秒）"),
+    top_terms: int = Query(40, ge=5, le=200, description="候选关键词数量"),
+    max_clusters: int = Query(8, ge=1, le=20, description="返回的话题簇上限"),
+) -> dict[str, Any]:
+    """话题聚类：基于关键词共现的轻量级话题发现
+
+    无第三方 NLP 依赖，使用 2/3-gram + 共现图 + 并查集分簇。
+    返回话题簇列表（每簇含代表词、关键词、命中消息数）。
+    """
+    filters: dict[str, Any] = {}
+    if chat_id:
+        filters["chat_id"] = chat_id
+    if date_from:
+        filters["date_from"] = date_from
+    if date_to:
+        filters["date_to"] = date_to
+
+    try:
+        return await get_topic_clusters(
+            filters=filters,
+            top_terms_limit=top_terms,
+            max_clusters=max_clusters,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

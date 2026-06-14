@@ -472,3 +472,52 @@ class TestAPI:
             response = await client.get("/api/stats/relationships?top_pairs=0")
 
         assert response.status_code == 422
+
+    async def test_topics_empty(self):
+        """Test GET /api/stats/topics on empty DB returns zeroed structure"""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/stats/topics")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_messages"] == 0
+        assert data["total_terms"] == 0
+        assert data["clusters"] == []
+
+    async def test_topics_with_messages(self):
+        """Test GET /api/stats/topics returns clusters for text messages"""
+        from app.db import insert_messages
+        from app.models.message import UnifiedMessage
+
+        messages = [
+            UnifiedMessage(
+                id=0, source=MessageSource.WECHAT_4X, msg_svr_id=60001 + i,
+                local_id=i, msg_type=1, timestamp=1704067200 + i,
+                chat_id="chat_a", sender_name="Alice",
+                content=f"python programming discussion number {i}",
+            )
+            for i in range(5)
+        ]
+        await insert_messages(messages)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/stats/topics")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_messages"] == 5
+        assert data["total_terms"] > 0
+        assert isinstance(data["clusters"], list)
+
+    async def test_topics_rejects_invalid_limit(self):
+        """Test GET /api/stats/topics validates max_clusters range"""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/stats/topics?max_clusters=0")
+
+        assert response.status_code == 422

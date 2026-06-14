@@ -5,6 +5,7 @@ from app.db import (
     get_contact_activity_stats,
     get_db_path,
     get_relationship_analysis,
+    get_topic_clusters,
     get_visualization_stats,
     init_database,
     insert_messages,
@@ -593,3 +594,76 @@ class TestDatabase:
         first = pairs[0]
         assert {first["a"], first["b"]} == {"Alice", "Bob"}
         assert pairs[0]["strength"] >= pairs[1]["strength"]
+
+    async def test_topic_clusters_empty_db(self):
+        """空数据库应返回零值结构，不报错"""
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        result = await get_topic_clusters()
+
+        assert result["total_messages"] == 0
+        assert result["total_terms"] == 0
+        assert result["clusters"] == []
+
+    async def test_topic_clusters_groups_repeated_keywords(self):
+        """反复讨论相同主题的消息应聚成一个话题簇"""
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        # 围绕 python / 编程 的消息，加上无关的吃饭消息
+        messages = [
+            UnifiedMessage(
+                id=0, source=MessageSource.WECHAT_4X, msg_svr_id=40001 + i,
+                local_id=i, msg_type=1, timestamp=1704067200 + i,
+                chat_id="chat_a", sender_name="Alice",
+                content=content,
+            )
+            for i, content in enumerate([
+                "今天 python 写得怎么样",      # python + 编程相关
+                "python 这个编程语言很好用",    # python + 编程
+                "编程用 python 很方便",         # 编程 + python
+                "周末去吃什么饭",              # 无关：吃饭
+                "吃火锅吧",                    # 无关：吃饭
+            ])
+        ]
+        await insert_messages(messages)
+
+        result = await get_topic_clusters(top_terms_limit=20, max_clusters=5)
+
+        assert result["total_messages"] == 5
+        assert result["total_terms"] > 0
+        # 至少应有一个簇
+        assert len(result["clusters"]) >= 1
+        # 每个簇结构正确
+        for cluster in result["clusters"]:
+            assert "label" in cluster
+            assert "keywords" in cluster
+            assert "message_count" in cluster
+            assert isinstance(cluster["keywords"], list)
+            assert cluster["message_count"] >= 1
+
+    async def test_topic_clusters_respects_filters(self):
+        """chat_id 过滤应只统计匹配聊天的消息"""
+        db_path = await get_db_path()
+        await init_database(db_path)
+
+        messages = [
+            UnifiedMessage(
+                id=0, source=MessageSource.WECHAT_4X, msg_svr_id=50001 + i,
+                local_id=i, msg_type=1, timestamp=1704067200 + i,
+                chat_id="chat_a" if i < 3 else "chat_b",
+                sender_name="Alice",
+                content="python programming is fun" if i < 3 else "cooking dinner recipes",
+            )
+            for i in range(6)
+        ]
+        await insert_messages(messages)
+
+        result_all = await get_topic_clusters()
+        result_filtered = await get_topic_clusters(filters={"chat_id": "chat_b"})
+
+        # 不过滤应包含 chat_a + chat_b 的所有文本
+        assert result_all["total_messages"] == 6
+        # 过滤后只看 chat_b（3 条）
+        assert result_filtered["total_messages"] == 3
