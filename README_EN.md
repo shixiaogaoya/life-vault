@@ -287,7 +287,7 @@ Privacy is a core, non-negotiable design constraint:
 - **No telemetry** — no usage data collected
 - **No external calls** — unless you explicitly enable LLM (disabled by default); cloud providers show a clear warning in the UI
 
-See [SECURITY.md](SECURITY.md) and [docs/PRIVACY_MASKING.md](docs/PRIVACY_MASKING.md).
+See [docs/PRIVACY_MASKING.md](docs/PRIVACY_MASKING.md).
 
 ---
 
@@ -343,7 +343,7 @@ Full roadmap at [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Contributing & License
 
-Contributions, bug reports, and suggestions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributions, bug reports, and suggestions are welcome — please use [GitHub Issues](https://github.com/shixiaogaoya/life-vault/issues).
 
 This project is licensed under the [MIT License](LICENSE).
 

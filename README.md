@@ -346,7 +346,7 @@ LifeVault 将隐私作为核心原则，这是不可妥协的设计约束：
 - **无遥测** — 不收集任何使用数据
 - **无外部调用** — 除非你显式启用 LLM（默认禁用），且启用云端 provider 时前端会明确警告
 
-详见 [SECURITY.md](SECURITY.md) 与 [docs/PRIVACY_MASKING.md](docs/PRIVACY_MASKING.md)。
+详见 [docs/PRIVACY_MASKING.md](docs/PRIVACY_MASKING.md)。
 
 ---
 
@@ -402,7 +402,7 @@ life-vault/
 
 ## 贡献与协议
 
-欢迎贡献代码、报告问题或提出建议 — 详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+欢迎贡献代码、报告问题或提出建议 — 请通过 [GitHub Issues](https://github.com/shixiaogaoya/life-vault/issues) 联系。
 
 本项目基于 [MIT License](LICENSE) 开源。
 
