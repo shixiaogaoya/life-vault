@@ -189,11 +189,16 @@ export interface AIStatus {
   llm_enabled: boolean
   llm_provider: string
   llm_model: string
+  llm_base_url?: string
   llm_data_flows_remote: boolean
+  llm_api_key_set?: boolean
   embedding_enabled: boolean
   embedding_provider: string
   embedding_model: string
+  embedding_base_url?: string
+  embedding_api_key_set?: boolean
   is_local_only: boolean
+  source?: string
   index_progress: {
     status: string
     total: number
@@ -203,6 +208,18 @@ export interface AIStatus {
     finished_at: string
     error: string
   }
+}
+
+/** 用户从 UI 提交的 AI 配置更新（所有字段可选，只传需要改的） */
+export interface AIConfigUpdate {
+  llm_provider?: string
+  llm_model?: string
+  llm_api_key?: string
+  llm_base_url?: string
+  embedding_provider?: string
+  embedding_model?: string
+  embedding_api_key?: string
+  embedding_base_url?: string
 }
 
 export interface ChatCitation {

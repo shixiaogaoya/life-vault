@@ -84,42 +84,41 @@ Build a **privacy-first, local-first personal data archive** that gives users co
 
 ---
 
-## v0.3.0 - Desktop & Multi-Source 📱 (Q4 2026)
+## v0.3.0 - Desktop & Multi-Source 📱 (In Progress)
 
 **Goal:** Desktop app and support for additional data sources
 
-### Desktop Application
-- [ ] Electron-based desktop app
-  - [ ] Windows, macOS, Linux support
-  - [ ] Native file system access
-  - [ ] System tray integration
-  - [ ] Auto-update mechanism
-- [ ] Packaging
-  - [ ] Portable executable (no installation)
-  - [ ] Installer with optional auto-start
-  - [ ] Code signing for security
+### Desktop Application (Phase A — ✅ Done)
+- [x] Electron-based desktop app
+  - [x] Windows unpacked build (NSIS installer via CI)
+  - [ ] macOS dmg build
+  - [ ] Linux AppImage build
+  - [x] Native file system access (extraResources)
+  - [x] System tray integration + single instance lock
+  - [x] Auto-update mechanism (electron-updater → GitHub Releases)
+- [x] Backend packaging (PyInstaller `--onefile`)
+- [x] Embedded static file server (replaces nginx in desktop mode)
+- [x] Dynamic port allocation (no hardcoded ports)
+- [x] OS-standard data directories (AppData / Library / .local)
+- [x] AI runtime config via UI (no env vars or restart needed)
+- [ ] Code signing (deferred — open source, GitHub Releases distribution)
+- [ ] CI workflow for automated cross-platform builds
 
-### Multi-Source Support
-- [ ] WeChat database parser
-  - [ ] Direct parsing of WeChat's EnMicroMsg.db
-  - [ ] Handle encrypted databases
-  - [ ] Media file extraction
-- [ ] QQ support
-  - [ ] QQ message history import
-  - [ ] Unified message format conversion
+### Multi-Source Support (Phase B/C — Planned)
+- [ ] Adapter framework refactoring (BaseAdapter + AdapterRegistry)
 - [ ] Telegram support
   - [ ] Telegram export JSON parsing
   - [ ] Media handling
+- [ ] WeChat encrypted database
+  - [ ] Direct parsing of WeChat's EnMicroMsg.db
+  - [ ] Handle encrypted databases (SQLCipher)
+  - [ ] Media file extraction
 
-### Advanced Features
-- [ ] Backup & sync
-  - [ ] Automatic backups
-  - [ ] Incremental sync
-  - [ ] Version history
-- [ ] Plugin system
-  - [ ] Custom data adapters
-  - [ ] Third-party exporters
-  - [ ] Extension marketplace
+### Deferred to v0.4+
+- Plugin system (custom data adapters, third-party exporters)
+- Extension marketplace
+- QQ support (high maintenance cost, unstable across versions)
+- Backup & sync (automatic backups, incremental sync, version history)
 
 ---
 

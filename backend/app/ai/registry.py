@@ -10,7 +10,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Callable
 
-from app.ai.config import AIConfig, load_ai_config
+from app.ai.config import AIConfig, clear_ai_config, load_ai_config, save_ai_config
 from app.ai.embeddings.base import EmbeddingProvider, EmbeddingProviderError
 from app.ai.embeddings.local_embeddings import LocalEmbeddingProvider
 from app.ai.embeddings.ollama_embeddings import OllamaEmbeddingProvider
@@ -53,6 +53,22 @@ def reload_config() -> AIConfig:
     """强制重新加载配置（用于测试或运行时切换 provider）"""
     _cached_config.cache_clear()
     return _cached_config()
+
+
+def apply_config(updates: dict) -> AIConfig:
+    """保存用户配置到文件并立即生效（清缓存 + 返回新配置）。
+
+    供 /api/ai/config PUT 调用：写入 ai_config.json 后清 lru_cache，
+    下次 get_config() 拿到新值，无需重启服务。
+    """
+    save_ai_config(updates)
+    return reload_config()
+
+
+def reset_config() -> AIConfig:
+    """删除配置文件，恢复到环境变量 / 默认值"""
+    clear_ai_config()
+    return reload_config()
 
 
 def get_config() -> AIConfig:

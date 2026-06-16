@@ -335,8 +335,9 @@ life-vault/
 Full roadmap at [docs/ROADMAP.md](docs/ROADMAP.md).
 
 - **v0.1.0** ✅ — Unified data model, FTS5 search, RESTful API, basic frontend, JSON/CSV export
-- **v0.2.0 (current)** ✅ — Privacy masking/anonymization/encryption exports, visualization dashboard, relationship graph, topic clustering, AI assistant (RAG + summaries), vector indexing
-- **v0.3.0 (planned)** — Electron desktop app, cross-platform packaging, multi-source (QQ, Telegram)
+- **v0.2.0** ✅ — Privacy masking/anonymization/encryption exports, visualization dashboard, relationship graph, topic clustering, AI assistant (RAG + summaries), vector indexing
+- **v0.3.0 (in progress)** 🚧 — Electron desktop app (Phase A ✅ done), AI runtime UI config (✅), multi-source (Telegram, WeChat encrypted DB)
+- **v0.4.0 (planned)** — Authentication, database encryption, team collaboration
 
 ---
 

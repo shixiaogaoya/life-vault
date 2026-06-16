@@ -1,0 +1,28 @@
+{
+  "name": "lifevault-desktop",
+  "version": "0.3.0",
+  "description": "LifeVault 桌面应用 — 本地优先的微信数据归档与分析工具",
+  "main": "dist/main.js",
+  "author": "LifeVault Contributors",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "tsc -p tsconfig.json && electron .",
+    "build": "tsc -p tsconfig.json",
+    "start": "electron .",
+    "dist": "tsc -p tsconfig.json && electron-builder",
+    "dist:win": "tsc -p tsconfig.json && electron-builder --win",
+    "dist:mac": "tsc -p tsconfig.json && electron-builder --mac",
+    "dist:linux": "tsc -p tsconfig.json && electron-builder --linux",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}

@@ -45,7 +45,8 @@
 | 💬 **话题聚类** | 基于关键词共现的话题发现（零 NLP 依赖） |
 | 📤 **多格式导出** | JSON / CSV / Markdown / HTML（含内嵌图表）/ 分析报告 |
 | 🛡️ **导出隐私保护** | 脱敏手机号/身份证/邮箱/姓名地址，匿名化分享导出，密码/GPG 加密 |
-| 🤖 **AI 智能助手** | 可选 RAG 问答与智能摘要，支持 OpenAI / Anthropic / Ollama |
+| 🤖 **AI 智能助手** | 可选 RAG 问答与智能摘要，支持 OpenAI / Anthropic / Ollama；**前端 UI 直接配置，无需环境变量** |
+| 🖥️ **桌面应用** | Electron 打包，内嵌后端，双击即用（v0.3.0 开发中） |
 | 🐳 **一键部署** | Docker 本机与远程服务器通用，开箱即用 |
 
 ### 界面预览
@@ -129,6 +130,21 @@ npm install
 npm run dev                             # http://localhost:3000
 ```
 
+### 桌面应用（v0.3.0 新增，开发中）
+
+Electron 打包的桌面应用，内嵌 PyInstaller 后端，双击即用，无需 Docker 或 Python 环境。
+
+```bash
+# 从源码构建（Windows）
+.\scripts\build_desktop.ps1
+# 产出：desktop/dist-release/win-unpacked/LifeVault.exe
+
+# 增量构建（跳过已完成的前端/后端步骤）
+.\scripts\build_desktop.ps1 -SkipFrontend -SkipBackend
+```
+
+> **当前状态**：阶段 A（桌面壳 + 后端打包）已完成，支持 Windows unpacked 运行。NSIS 安装器、macOS dmg、Linux AppImage 将由 CI 自动产出。详见 [docs/DESKTOP_DEVELOPMENT.md](docs/DESKTOP_DEVELOPMENT.md)。
+
 ---
 
 ## 导入数据
@@ -157,13 +173,46 @@ curl -X POST http://localhost:8000/api/import \
 
 ## AI 功能（可选）
 
-AI 功能（RAG 问答、智能摘要）**默认禁用**，需显式配置环境变量启用。三种 provider：
+AI 功能（RAG 问答、智能摘要）**默认未配置**，有两种启用方式：
+
+### 方式一：前端 UI 配置（推荐，无需重启）
+
+启动应用后访问「AI 智能助手」页面 → 点击右上角 **⚙ 配置 AI** → 选择服务商快捷预设（自动填入地址和模型名）→ 补上 API Key → 保存即**立即生效**。
+
+内置服务商预设：
+- **DeepSeek**（推荐，性价比高）— `deepseek-chat`，`https://api.deepseek.com/v1`
+- **OpenAI 官方** — `gpt-4o-mini`
+- **Moonshot（Kimi）** — `moonshot-v1-8k`
+- **Ollama**（本地，隐私优先，免费）— `llama3.2`
+
+> 所有云端服务商都走 OpenAI 兼容协议，也支持任何其他兼容 OpenAI API 格式的服务（填 Base URL 即可）。
+> API Key 保存在本地配置文件（`ai_config.json`），**不上传任何服务器**。
+
+### 方式二：环境变量（适合 Docker / 运维部署）
 
 | Provider | 隐私 | 需要配置 |
 |----------|------|----------|
-| **Ollama**（推荐） | ✅ 数据留在本地 | 仅需 `LIFEVAULT_LLM_PROVIDER=ollama` + 模型名 |
-| OpenAI / DeepSeek / Moonshot | ⚠️ 发往云端 | 需 API Key |
+| **DeepSeek**（推荐，性价比高） | ⚠️ 发往云端 | API Key + Base URL |
+| **Ollama**（本地，隐私优先） | ✅ 数据留在本地 | 仅需 `LIFEVAULT_LLM_PROVIDER=ollama` + 模型名 |
+| OpenAI / Moonshot / 其他兼容 | ⚠️ 发往云端 | 需 API Key |
 | Anthropic Claude | ⚠️ 发往云端 | 需 API Key |
+
+<details>
+<summary><b>DeepSeek 配置示例（推荐，兼容 OpenAI 协议）</b></summary>
+
+```bash
+# DeepSeek 不提供 Embedding API，embedding 需另配 Ollama 或 OpenAI
+export LIFEVAULT_LLM_PROVIDER=openai
+export LIFEVAULT_LLM_MODEL=deepseek-chat
+export LIFEVAULT_LLM_BASE_URL=https://api.deepseek.com/v1
+export LIFEVAULT_LLM_API_KEY=sk-...
+
+# Embedding 用 Ollama（本地免费）或 OpenAI
+export LIFEVAULT_EMBEDDING_PROVIDER=ollama
+export LIFEVAULT_EMBEDDING_MODEL=nomic-embed-text
+```
+
+</details>
 
 <details>
 <summary><b>Ollama 配置示例（本地，隐私优先）</b></summary>
@@ -180,19 +229,27 @@ export LIFEVAULT_EMBEDDING_MODEL=nomic-embed-text
 </details>
 
 <details>
-<summary><b>OpenAI / Anthropic 配置示例</b></summary>
+<summary><b>OpenAI / Moonshot / Anthropic 配置示例</b></summary>
 
 ```bash
-# OpenAI（兼容 DeepSeek/Moonshot，可用 LIFEVAULT_LLM_BASE_URL 自定义端点）
+# OpenAI 官方
 export LIFEVAULT_LLM_PROVIDER=openai
 export LIFEVAULT_LLM_MODEL=gpt-4o-mini
 export LIFEVAULT_LLM_API_KEY=sk-...
 
-# Anthropic
+# Moonshot（Kimi）— 兼容 OpenAI 协议，换 base_url 和模型名即可
+export LIFEVAULT_LLM_PROVIDER=openai
+export LIFEVAULT_LLM_MODEL=moonshot-v1-8k
+export LIFEVAULT_LLM_BASE_URL=https://api.moonshot.cn/v1
+export LIFEVAULT_LLM_API_KEY=sk-...
+
+# Anthropic（独立协议，非 OpenAI 兼容）
 export LIFEVAULT_LLM_PROVIDER=anthropic
 export LIFEVAULT_LLM_MODEL=claude-sonnet-4-6
 export LIFEVAULT_LLM_API_KEY=sk-ant-...
 ```
+
+> **提示**：任何兼容 OpenAI API 格式的服务（智谱 GLM、零一万物、硅基流动等）都可以用 `llm_provider=openai` + 自定义 `llm_base_url` 接入。
 
 </details>
 
@@ -217,7 +274,9 @@ export LIFEVAULT_LLM_API_KEY=sk-ant-...
 
 </details>
 
-启用后访问 `http://<地址>:3000/ai-chat` 即可。Docker 用户在 `docker-compose.yml` 的 `backend.environment` 中配置。
+> **隐私提示**：UI 配置的 API Key 存于本地 `ai_config.json`，该文件已在 `.gitignore` 中忽略，不会进入版本控制。云端 provider（OpenAI/Anthropic）启用时前端会显示数据流向警告。
+
+启用后访问 `http://<地址>:3000/ai-chat` 即可。Docker 用户在 `docker-compose.yml` 的 `backend.environment` 中配置，或启动后在 UI 里填写。
 
 ---
 
@@ -335,8 +394,9 @@ life-vault/
 完整路线图见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 - **v0.1.0** ✅ — 统一数据模型、FTS5 检索、RESTful API、基础前端、JSON/CSV 导出
-- **v0.2.0（当前）** ✅ — 隐私脱敏/匿名化/加密导出、可视化仪表板、关系图谱、话题聚类、AI 助手（RAG+摘要）、向量索引
-- **v0.3.0（规划中）** — Electron 桌面应用、跨平台打包、多数据源（QQ、Telegram）
+- **v0.2.0** ✅ — 隐私脱敏/匿名化/加密导出、可视化仪表板、关系图谱、话题聚类、AI 助手（RAG+摘要）、向量索引
+- **v0.3.0（进行中）** 🚧 — Electron 桌面应用（阶段 A ✅ 已完成）、AI 运行时 UI 配置（✅）、多数据源（Telegram、微信加密库）
+- **v0.4.0（规划中）** — 认证、数据库加密、团队协作
 
 ---
 

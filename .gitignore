@@ -10,7 +10,7 @@ CLAUDE.md
 openspec/
 
 # 内部审计/扫描报告（开发期产物）
-docs/PRE_RELEASE_AUDIT.md
+docs/PRELEASE_AUDIT.md
 docs/SECURITY_SCAN.md
 
 # Python
@@ -91,6 +91,29 @@ cache/
 frontend/.nuxt/
 frontend/.output/
 frontend/node_modules/
+frontend/build_*.log
+
+# Desktop (Electron)
+# 只提交 src/ + 配置文件，所有构建产物和 staging 区忽略
+desktop/node_modules/
+desktop/dist/
+desktop/dist-release/
+desktop/dist-*/
+desktop/release/
+desktop/release2/
+desktop/resources/
+
+# PyInstaller 构建产物
+# backend/build 与 backend/dist 已被上面的 build/ dist/ 覆盖
+# *.spec 是源码需保留
+backend/lifevault-backend.spec.bak
+
+# AI 运行时配置（含 API Key，绝不提交）
+ai_config.json
+
+# 工具缓存（uv / pip）
+.uv-cache/
+.uv-python/
 
 # OpenSpec
 openspec/tmp/

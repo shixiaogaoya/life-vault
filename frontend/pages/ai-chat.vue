@@ -3,6 +3,9 @@ import type { AIStatus, ChatMessageItem } from '~/types/message'
 
 const {
   getAIStatus,
+  getAIConfig,
+  saveAIConfig,
+  testAIConnection,
   aiChat,
   aiSummary,
   aiIndexStart,
@@ -157,6 +160,329 @@ const periodLabels: Record<string, string> = {
   month: '本月',
 }
 
+// ===== AI 配置面板（运行时填写，无需环境变量或重启） =====
+const showConfig = ref(false)
+const configSaving = ref(false)
+const configForm = reactive({
+  llm_provider: 'openai',
+  llm_model: '',
+  llm_api_key: '',
+  llm_base_url: '',
+  embedding_provider: 'openai',
+  embedding_model: '',
+  embedding_api_key: '',
+  embedding_base_url: '',
+})
+// 标记 api_key 是否已配置（从后端读取，决定是否显示「已设置」提示）
+const llmApiKeySet = ref(false)
+const embeddingApiKeySet = ref(false)
+
+const providerOptions = [
+  { value: 'openai', label: 'OpenAI 兼容（DeepSeek / OpenAI / Moonshot 等）' },
+  { value: 'anthropic', label: 'Anthropic Claude' },
+  { value: 'ollama', label: 'Ollama（本地，隐私优先）' },
+]
+const embeddingProviderOptions = [
+  { value: 'openai', label: 'OpenAI 兼容 Embeddings' },
+  { value: 'ollama', label: 'Ollama Embeddings（本地）' },
+]
+
+/**
+ * 服务商预设：点击后自动填入 base_url + 推荐模型名，用户只需补 API Key。
+ * 所有预设都走 OpenAI 兼容协议（llm_provider=openai），
+ * 因为 DeepSeek / Moonshot / 智谱等都兼容 OpenAI API 格式。
+ */
+interface Preset {
+  key: string
+  label: string
+  llm_base_url: string
+  llm_model: string
+  // embedding 配置（部分服务商不提供 embedding API，用 null 表示需另配）
+  embedding_base_url?: string
+  embedding_model?: string
+  needs_api_key: boolean
+  help_url?: string
+}
+
+const llmPresets: Preset[] = [
+  {
+    key: 'deepseek',
+    label: 'DeepSeek（推荐，性价比高）',
+    llm_base_url: 'https://api.deepseek.com/v1',
+    llm_model: 'deepseek-chat',
+    needs_api_key: true,
+    help_url: 'https://platform.deepseek.com/api_keys',
+  },
+  {
+    key: 'openai',
+    label: 'OpenAI 官方',
+    llm_base_url: 'https://api.openai.com/v1',
+    llm_model: 'gpt-4o-mini',
+    embedding_base_url: 'https://api.openai.com/v1',
+    embedding_model: 'text-embedding-3-small',
+    needs_api_key: true,
+    help_url: 'https://platform.openai.com/api-keys',
+  },
+  {
+    key: 'moonshot',
+    label: 'Moonshot（Kimi）',
+    llm_base_url: 'https://api.moonshot.cn/v1',
+    llm_model: 'moonshot-v1-8k',
+    embedding_base_url: 'https://api.moonshot.cn/v1',
+    embedding_model: 'text-embedding-1',
+    needs_api_key: true,
+    help_url: 'https://platform.moonshot.cn/console/api-keys',
+  },
+  {
+    key: 'ollama',
+    label: 'Ollama（本地，隐私优先，免费）',
+    llm_base_url: 'http://localhost:11434/v1',
+    llm_model: 'llama3.2',
+    embedding_base_url: 'http://localhost:11434/v1',
+    embedding_model: 'nomic-embed-text',
+    needs_api_key: false,
+    help_url: 'https://ollama.com/download',
+  },
+]
+
+const embeddingPresets: Preset[] = [
+  {
+    key: 'openai-emb',
+    label: 'OpenAI Embeddings（需 OpenAI Key）',
+    llm_base_url: '',
+    llm_model: '',
+    embedding_base_url: 'https://api.openai.com/v1',
+    embedding_model: 'text-embedding-3-small',
+    needs_api_key: true,
+  },
+  {
+    key: 'ollama-emb',
+    label: 'Ollama Embeddings（本地，免费）',
+    llm_base_url: '',
+    llm_model: '',
+    embedding_base_url: 'http://localhost:11434/v1',
+    embedding_model: 'nomic-embed-text',
+    needs_api_key: false,
+  },
+  {
+    key: 'deepseek-emb',
+    label: 'DeepSeek（暂不提供 Embedding API，请选其他）',
+    llm_base_url: '',
+    llm_model: '',
+    embedding_base_url: '',
+    embedding_model: '',
+    needs_api_key: false,
+  },
+]
+
+/** 应用 LLM 预设：自动填入 base_url + model，切换 provider */
+const applyLlmPreset = (preset: Preset) => {
+  // Ollama 预设切换 provider 为 ollama（后端走不同的 provider 逻辑）
+  configForm.llm_provider = preset.key === 'ollama' ? 'ollama' : 'openai'
+  configForm.llm_base_url = preset.llm_base_url
+  configForm.llm_model = preset.llm_model
+  // 如果预设包含 embedding 配置，一并填入
+  if (preset.embedding_base_url) {
+    configForm.embedding_provider = preset.key === 'ollama' ? 'ollama' : 'openai'
+    configForm.embedding_base_url = preset.embedding_base_url
+    configForm.embedding_model = preset.embedding_model || ''
+  }
+}
+
+/** 应用 Embedding 预设 */
+const applyEmbeddingPreset = (preset: Preset) => {
+  if (!preset.embedding_base_url) return  // DeepSeek 那条不可选
+  configForm.embedding_provider = preset.key === 'ollama-emb' ? 'ollama' : 'openai'
+  configForm.embedding_base_url = preset.embedding_base_url
+  configForm.embedding_model = preset.embedding_model || ''
+}
+
+const loadConfig = async () => {
+  try {
+    const cfg = await getAIConfig() as Record<string, any>
+    configForm.llm_provider = cfg.llm_provider || 'openai'
+    configForm.llm_model = cfg.llm_model || ''
+    configForm.llm_base_url = cfg.llm_base_url || ''
+    configForm.embedding_provider = cfg.embedding_provider || 'openai'
+    configForm.embedding_model = cfg.embedding_model || ''
+    configForm.embedding_base_url = cfg.embedding_base_url || ''
+    llmApiKeySet.value = !!cfg.llm_api_key_set
+    embeddingApiKeySet.value = !!cfg.embedding_api_key_set
+    // api_key 不回填（安全考虑），留空让用户重新输入或保持不变
+    configForm.llm_api_key = ''
+    configForm.embedding_api_key = ''
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : '加载配置失败'
+  }
+}
+
+const saveConfig = async () => {
+  configSaving.value = true
+  errorMsg.value = ''
+  try {
+    // 只提交非空字段；api_key 为空时不提交（保留原值）
+    const update: Record<string, string> = {}
+    for (const [k, v] of Object.entries(configForm)) {
+      if (v !== '' && v !== null && v !== undefined) update[k] = v
+    }
+    await saveAIConfig(update)
+    await loadStatus()  // 刷新状态（llm_enabled 应变为 true）
+    showConfig.value = false
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : '保存配置失败'
+  } finally {
+    configSaving.value = false
+  }
+}
+
+// ===== 模型拉取与连接测试 =====
+const llmModels = ref<string[]>([])         // 拉取到的 LLM 模型列表
+const embeddingModels = ref<string[]>([])   // 拉取到的 embedding 模型列表
+const fetchingModels = ref(false)           // 拉取中
+const testingConnection = ref(false)        // 测试连接中
+const testResult = ref<{ ok: boolean; msg: string } | null>(null)
+
+/**
+ * 获取用于测试的 API Key：
+ * 用户在表单里新填的 llm_api_key 优先；没填则用空串
+ * （后端会用已保存的 key 测试，但 /test 端点是独立的，需要显式传 key）。
+ * 如果用户没输入新 key 且已有保存的 key，提示用户先输入。
+ */
+const resolveTestApiKey = (field: 'llm' | 'embedding'): string => {
+  const newKey = field === 'llm' ? configForm.llm_api_key : configForm.embedding_api_key
+  if (newKey) return newKey
+  // 没输入新 key：Ollama 不需要 key，直接返回空
+  const provider = field === 'llm' ? configForm.llm_provider : configForm.embedding_provider
+  if (provider === 'ollama') return ''
+  return ''  // 云端 provider 没填 key 时后端会返回错误，由 UI 引导
+}
+
+/** 拉取 LLM 模型列表（调后端 /api/ai/test，kind=llm） */
+const fetchLlmModels = async () => {
+  if (!configForm.llm_base_url) {
+    errorMsg.value = '请先填写 API Base URL 或选择服务商预设'
+    return
+  }
+  fetchingModels.value = true
+  errorMsg.value = ''
+  try {
+    const result = await testAIConnection({
+      base_url: configForm.llm_base_url,
+      api_key: resolveTestApiKey('llm'),
+      provider: configForm.llm_provider as 'openai' | 'ollama',
+      kind: 'llm',
+    })
+    if (result.ok && result.models.length > 0) {
+      llmModels.value = result.models
+      // 如果当前模型不在列表里，默认选第一个
+      if (!configForm.llm_model || !result.models.includes(configForm.llm_model)) {
+        configForm.llm_model = result.models[0]
+      }
+      testResult.value = { ok: true, msg: `拉取到 ${result.models.length} 个模型（${result.latency_ms}ms）` }
+    } else {
+      testResult.value = { ok: false, msg: result.error || '未找到可用模型' }
+    }
+  } catch (e) {
+    testResult.value = { ok: false, msg: e instanceof Error ? e.message : '拉取失败' }
+  } finally {
+    fetchingModels.value = false
+  }
+}
+
+/** 拉取 Embedding 模型列表（kind=embedding） */
+const fetchEmbeddingModels = async () => {
+  if (!configForm.embedding_base_url) {
+    errorMsg.value = '请先填写 Embedding API Base URL 或选择预设'
+    return
+  }
+  fetchingModels.value = true
+  errorMsg.value = ''
+  try {
+    const result = await testAIConnection({
+      base_url: configForm.embedding_base_url,
+      api_key: resolveTestApiKey('embedding'),
+      provider: configForm.embedding_provider as 'openai' | 'ollama',
+      kind: 'embedding',
+    })
+    if (result.ok && result.models.length > 0) {
+      embeddingModels.value = result.models
+      if (!configForm.embedding_model || !result.models.includes(configForm.embedding_model)) {
+        configForm.embedding_model = result.models[0]
+      }
+      testResult.value = { ok: true, msg: `Embedding：拉取到 ${result.models.length} 个模型` }
+    } else {
+      testResult.value = { ok: false, msg: result.error || '未找到 embedding 模型' }
+    }
+  } catch (e) {
+    testResult.value = { ok: false, msg: e instanceof Error ? e.message : '拉取失败' }
+  } finally {
+    fetchingModels.value = false
+  }
+}
+
+/**
+ * 测试当前表单配置的完整连通性：
+ * 同时测试 LLM 和 Embedding，确认两者都能正常请求。
+ */
+const testConnection = async () => {
+  testingConnection.value = true
+  testResult.value = null
+  errorMsg.value = ''
+  try {
+    const results: string[] = []
+
+    // 测 LLM
+    if (configForm.llm_base_url) {
+      const r = await testAIConnection({
+        base_url: configForm.llm_base_url,
+        api_key: resolveTestApiKey('llm'),
+        provider: configForm.llm_provider as 'openai' | 'ollama',
+        kind: 'llm',
+      })
+      if (r.ok) {
+        results.push(`LLM ✓ (${r.latency_ms}ms, ${r.models.length} 模型)`)
+        if (r.models.length > 0 && !r.models.includes(configForm.llm_model)) {
+          configForm.llm_model = r.models[0]
+        }
+        llmModels.value = r.models
+      } else {
+        results.push(`LLM ✗ ${r.error}`)
+      }
+    }
+
+    // 测 Embedding
+    if (configForm.embedding_base_url) {
+      const r = await testAIConnection({
+        base_url: configForm.embedding_base_url,
+        api_key: resolveTestApiKey('embedding'),
+        provider: configForm.embedding_provider as 'openai' | 'ollama',
+        kind: 'embedding',
+      })
+      if (r.ok) {
+        results.push(`Embedding ✓ (${r.latency_ms}ms)`)
+        embeddingModels.value = r.models
+      } else {
+        results.push(`Embedding ✗ ${r.error}`)
+      }
+    }
+
+    const allOk = results.every(r => r.includes('✓'))
+    testResult.value = { ok: allOk, msg: results.join('  |  ') }
+  } catch (e) {
+    testResult.value = { ok: false, msg: e instanceof Error ? e.message : '测试失败' }
+  } finally {
+    testingConnection.value = false
+  }
+}
+
+const openConfig = async () => {
+  showConfig.value = true
+  testResult.value = null
+  llmModels.value = []
+  embeddingModels.value = []
+  await loadConfig()
+}
+
 onMounted(async () => {
   await loadStatus()
   // 如果状态显示索引正在运行，自动开启轮询
@@ -203,23 +529,202 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
-          <div v-if="status.llm_enabled && status.llm_data_flows_remote"
-               class="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded">
-            数据将发送至云端 LLM ({{ status.llm_provider }})
-          </div>
-          <div v-else-if="status.is_local_only && status.llm_enabled"
-               class="bg-green-50 border border-green-200 text-green-800 text-xs px-3 py-2 rounded">
-            隐私模式：所有数据保留本地
+          <div class="flex items-center gap-2">
+            <div v-if="status.llm_enabled && status.llm_data_flows_remote"
+                 class="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded">
+              数据将发送至云端 LLM ({{ status.llm_provider }})
+            </div>
+            <div v-else-if="status.is_local_only && status.llm_enabled"
+                 class="bg-green-50 border border-green-200 text-green-800 text-xs px-3 py-2 rounded">
+              隐私模式：所有数据保留本地
+            </div>
+            <button
+              @click="openConfig"
+              class="text-sm px-3 py-1.5 rounded border border-gray-300 hover:bg-gray-50 text-gray-700"
+            >
+              ⚙ {{ status.llm_enabled ? '修改配置' : '配置 AI' }}
+            </button>
           </div>
         </div>
 
-        <div v-if="!status.llm_enabled" class="mt-3 text-xs text-gray-500 bg-gray-50 p-3 rounded">
-          <strong>启用方法：</strong>在后端配置以下环境变量后重启服务：
-          <pre class="mt-2 bg-gray-100 p-2 rounded text-xs overflow-x-auto">LIFEVAULT_LLM_PROVIDER=ollama  # 或 openai/anthropic
-LIFEVAULT_LLM_MODEL=llama3.2  # 或 gpt-4o-mini / claude-sonnet-4-6
-LIFEVAULT_LLM_API_KEY=...     # OpenAI/Anthropic 必填，Ollama 不需要
-LIFEVAULT_EMBEDDING_PROVIDER=ollama
-LIFEVAULT_EMBEDDING_MODEL=nomic-embed-text</pre>
+        <!-- 配置表单（默认折叠，点击「配置 AI」展开） -->
+        <div v-if="showConfig" class="mt-4 border-t pt-4 space-y-4">
+          <h3 class="text-sm font-semibold text-gray-800">AI 配置</h3>
+          <p class="text-xs text-gray-500">
+            填写后保存即立即生效，无需重启。API Key 仅保存在本地配置文件，不上传任何服务器。
+          </p>
+
+          <!-- LLM 配置 -->
+          <div class="bg-gray-50 rounded p-3 space-y-3">
+            <div class="text-xs font-semibold text-gray-700 uppercase tracking-wide">LLM（问答与摘要）</div>
+
+            <!-- 服务商快捷预设 -->
+            <div>
+              <div class="text-xs text-gray-500 mb-1.5">快捷选择服务商（自动填入地址和模型名，只需补 API Key）：</div>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="preset in llmPresets"
+                  :key="preset.key"
+                  @click="applyLlmPreset(preset)"
+                  class="text-xs px-2.5 py-1 rounded border border-gray-300 bg-white hover:bg-blue-50 hover:border-blue-300 text-gray-700"
+                >
+                  {{ preset.label }}
+                </button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label class="block">
+                <span class="text-xs text-gray-600">Provider（协议类型）</span>
+                <select v-model="configForm.llm_provider" class="mt-1 w-full border rounded px-2 py-1.5 text-sm">
+                  <option v-for="opt in providerOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                </select>
+              </label>
+
+              <!-- 模型名：支持下拉选择（拉取后）或手动输入 -->
+              <label class="block">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs text-gray-600">模型名</span>
+                  <button
+                    type="button"
+                    @click="fetchLlmModels"
+                    :disabled="fetchingModels || !configForm.llm_base_url"
+                    class="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {{ fetchingModels ? '拉取中...' : (llmModels.length > 0 ? '↻ 刷新模型' : '↓ 拉取模型') }}
+                  </button>
+                </div>
+                <select
+                  v-if="llmModels.length > 0"
+                  v-model="configForm.llm_model"
+                  class="mt-1 w-full border rounded px-2 py-1.5 text-sm bg-white"
+                >
+                  <option v-for="m in llmModels" :key="m" :value="m">{{ m }}</option>
+                </select>
+                <input
+                  v-else
+                  v-model="configForm.llm_model"
+                  type="text"
+                  placeholder="点击「拉取模型」自动获取，或手动输入"
+                  class="mt-1 w-full border rounded px-2 py-1.5 text-sm"
+                />
+              </label>
+
+              <label class="block">
+                <span class="text-xs text-gray-600">API Base URL</span>
+                <input v-model="configForm.llm_base_url" type="text" placeholder="https://api.deepseek.com/v1"
+                  class="mt-1 w-full border rounded px-2 py-1.5 text-sm" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-gray-600">
+                  API Key
+                  <span v-if="llmApiKeySet" class="text-green-600 ml-1">（已设置，留空保持不变）</span>
+                </span>
+                <input v-model="configForm.llm_api_key" type="password" placeholder="sk-..."
+                  class="mt-1 w-full border rounded px-2 py-1.5 text-sm" />
+              </label>
+            </div>
+          </div>
+
+          <!-- Embedding 配置 -->
+          <div class="bg-gray-50 rounded p-3 space-y-3">
+            <div class="text-xs font-semibold text-gray-700 uppercase tracking-wide">Embedding（语义检索，RAG 必需）</div>
+            <p class="text-xs text-gray-500">
+              ⚠️ DeepSeek 目前不提供 Embedding API。若 LLM 用 DeepSeek，这里请选 OpenAI Embeddings 或 Ollama（本地免费）。
+            </p>
+
+            <!-- Embedding 快捷预设 -->
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="preset in embeddingPresets"
+                :key="preset.key"
+                @click="applyEmbeddingPreset(preset)"
+                :disabled="!preset.embedding_base_url"
+                class="text-xs px-2.5 py-1 rounded border border-gray-300 bg-white hover:bg-blue-50 hover:border-blue-300 text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {{ preset.label }}
+              </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label class="block">
+                <span class="text-xs text-gray-600">Provider</span>
+                <select v-model="configForm.embedding_provider" class="mt-1 w-full border rounded px-2 py-1.5 text-sm">
+                  <option v-for="opt in embeddingProviderOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                </select>
+              </label>
+              <label class="block">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs text-gray-600">模型名</span>
+                  <button
+                    type="button"
+                    @click="fetchEmbeddingModels"
+                    :disabled="fetchingModels || !configForm.embedding_base_url"
+                    class="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {{ fetchingModels ? '拉取中...' : (embeddingModels.length > 0 ? '↻ 刷新模型' : '↓ 拉取模型') }}
+                  </button>
+                </div>
+                <select
+                  v-if="embeddingModels.length > 0"
+                  v-model="configForm.embedding_model"
+                  class="mt-1 w-full border rounded px-2 py-1.5 text-sm bg-white"
+                >
+                  <option v-for="m in embeddingModels" :key="m" :value="m">{{ m }}</option>
+                </select>
+                <input
+                  v-else
+                  v-model="configForm.embedding_model"
+                  type="text"
+                  placeholder="点击「拉取模型」自动获取，或手动输入"
+                  class="mt-1 w-full border rounded px-2 py-1.5 text-sm"
+                />
+              </label>
+              <label class="block">
+                <span class="text-xs text-gray-600">API Base URL（可选）</span>
+                <input v-model="configForm.embedding_base_url" type="text" placeholder="https://api.openai.com/v1"
+                  class="mt-1 w-full border rounded px-2 py-1.5 text-sm" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-gray-600">
+                  API Key
+                  <span v-if="embeddingApiKeySet" class="text-green-600 ml-1">（已设置，留空保持不变）</span>
+                </span>
+                <input v-model="configForm.embedding_api_key" type="password" placeholder="sk-..."
+                  class="mt-1 w-full border rounded px-2 py-1.5 text-sm" />
+              </label>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button
+              @click="saveConfig"
+              :disabled="configSaving"
+              class="bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white text-sm px-4 py-2 rounded"
+            >
+              {{ configSaving ? '保存中...' : '保存并启用' }}
+            </button>
+            <button
+              @click="testConnection"
+              :disabled="testingConnection"
+              class="border border-gray-300 hover:bg-gray-50 disabled:opacity-50 text-gray-700 text-sm px-4 py-2 rounded"
+            >
+              {{ testingConnection ? '测试中...' : '🔌 测试连接' }}
+            </button>
+            <button @click="showConfig = false" class="text-sm text-gray-500 hover:text-gray-700">取消</button>
+          </div>
+
+          <!-- 测试 / 拉取结果 -->
+          <div v-if="testResult" class="text-xs p-2 rounded"
+            :class="testResult.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'"
+          >
+            {{ testResult.ok ? '✓' : '✗' }} {{ testResult.msg }}
+          </div>
+        </div>
+
+        <!-- 未启用提示（配置表单未展开时） -->
+        <div v-if="!status.llm_enabled && !showConfig" class="mt-3 text-sm text-gray-600 bg-blue-50 border border-blue-200 p-3 rounded">
+          点击右上角「配置 AI」，填写 API Key 和模型名即可启用，无需环境变量或重启。
         </div>
       </section>
 

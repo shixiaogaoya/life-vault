@@ -1,0 +1,80 @@
+﻿# LifeVault Desktop electron-builder config
+# asar disabled to avoid Windows Search Indexer locking app.asar
+
+appId: io.github.shixiaogaoya.lifevault
+productName: LifeVault
+copyright: Copyright (c) 2026 LifeVault Contributors
+
+asar: false
+
+directories:
+  output: dist-20260615110204
+  buildResources: build
+
+files:
+  - dist/**/*
+  - package.json
+  - "!node_modules/**/{README,readme,README.md,readme.md,CHANGELOG,CHANGELOG.md,changelog.md}"
+  - "!node_modules/**/*.md"
+  - "!node_modules/**/*.ts"
+  - "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}"
+  - "!**/.*"
+
+extraResources:
+  - from: resources/backend
+    to: backend
+    filter: ["**/*"]
+  - from: resources/frontend
+    to: frontend
+    filter: ["**/*"]
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: LifeVault-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: LifeVault
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  category: public.app-category.utilities
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  artifactName: LifeVault-${version}-${arch}.${ext}
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Utility
+  maintainer: LifeVault Contributors
+  artifactName: LifeVault-${version}.${ext}
+
+appImage:
+  artifactName: LifeVault-${version}.${ext}
+
+publish:
+  provider: github
+  owner: shixiaogaoya
+  repo: life-vault
+  releaseType: release

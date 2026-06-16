@@ -293,9 +293,12 @@ class TestAIConfig:
         monkeypatch.setenv("LIFEVAULT_LLM_API_KEY", "sk-secret")
         config = load_ai_config()
         public = config.to_public_dict()
+        # 明文 api_key 不应出现在返回中
         assert "llm_api_key" not in public
-        assert "api_key" not in str(public)
+        assert "embedding_api_key" not in public
         assert "sk-secret" not in str(public)
+        # 但允许返回是否已设置的布尔标记
+        assert public["llm_api_key_set"] is True
 
 
 def os_environ_keys() -> list[str]:
@@ -340,4 +343,7 @@ class TestRegistry:
         assert "llm_enabled" in status
         assert "llm_provider" in status
         assert "llm_model" in status
-        assert "api_key" not in str(status)
+        # 明文 api_key 不应出现（_key_set 布尔标记除外）
+        assert "sk-" not in str(status)
+        assert "llm_api_key" not in status
+        assert "embedding_api_key" not in status
